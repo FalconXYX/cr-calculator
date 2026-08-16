@@ -105,9 +105,12 @@ body {
 
 /* ---------------- Shell ---------------- */
 
+/* Collapsed is the default, so the reference is a thin bar under the
+   calculator and the calculator gets the full width. It only claims a
+   column of its own once opened, and only if there is room for one. */
 .app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 304px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 9px;
   align-items: start;
   max-width: 1360px;
@@ -327,10 +330,12 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   overscroll-behavior: contain;
 }
 
-/* On desktop, run the list to the bottom of the window so as many
-   CR-affecting traits as possible are visible without scrolling. */
+/* On desktop, run the list nearly to the bottom of the window so as many
+   CR-affecting traits as possible are visible without scrolling — but stop
+   short enough that the collapsed reference bar below stays on screen,
+   otherwise its toggle sits permanently just out of view. */
 @media (min-width: 701px) {
-  .trait-list { max-height: calc(100vh - 186px); }
+  .trait-list { max-height: calc(100vh - 244px); }
 }
 
 .grouphead {
@@ -439,8 +444,27 @@ button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
 
 /* ---------------- Reference ---------------- */
 
-.reference { position: sticky; top: 9px; }
-.ref-scroll { max-height: calc(100vh - 120px); overflow-y: auto; }
+.reference { position: static; }
+.ref-scroll { max-height: 340px; overflow-y: auto; }
+.ref-scroll[hidden] { display: none; }
+
+/* The header doubles as the toggle. */
+button.colhead {
+  width: 100%;
+  border: 0;
+  font-family: var(--serif);
+  text-align: left;
+  cursor: pointer;
+}
+button.colhead:hover { background: var(--head-hover); }
+button.colhead::after { content: "▸"; font-size: 11px; opacity: .8; }
+button.colhead[aria-expanded="true"]::after { content: "▾"; }
+
+@media (min-width: 1081px) {
+  .app.ref-open { grid-template-columns: minmax(0, 1fr) 304px; }
+  .app.ref-open .reference { position: sticky; top: 9px; }
+  .app.ref-open .ref-scroll { max-height: calc(100vh - 120px); }
+}
 .ref { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10px; table-layout: fixed; }
 .ref th {
   position: sticky; top: 0; z-index: 1;
@@ -508,12 +532,6 @@ button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
 .pop-gate { margin: 6px 0 0; font-size: 11px; font-weight: 700; color: var(--result); }
 
 /* ---------------- Responsive ---------------- */
-
-@media (max-width: 1080px) {
-  .app { grid-template-columns: minmax(0, 1fr); }
-  .reference { position: static; }
-  .ref-scroll { max-height: 340px; }
-}
 
 @media (max-width: 700px) {
   .panes { grid-template-columns: minmax(0, 1fr); }

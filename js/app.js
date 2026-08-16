@@ -450,6 +450,25 @@
 
   /* ---------------- Reference table ---------------- */
 
+  /* Collapsed by default. This is chrome rather than monster data, so it
+     lives in its own key instead of the working state — otherwise loading
+     a profile would yank the panel open or shut. */
+  const REF_KEY = 'cr-calc-ref-open';
+  let refOpen = false;
+  try { refOpen = localStorage.getItem(REF_KEY) === '1'; } catch (_) {}
+
+  function applyRefState() {
+    $('refScroll').hidden = !refOpen;
+    $('refToggle').setAttribute('aria-expanded', String(refOpen));
+    $('app').classList.toggle('ref-open', refOpen);
+  }
+
+  $('refToggle').addEventListener('click', () => {
+    refOpen = !refOpen;
+    try { localStorage.setItem(REF_KEY, refOpen ? '1' : '0'); } catch (_) {}
+    applyRefState();
+  });
+
   function buildRefTable() {
     const body = $('refBody');
     body.textContent = '';
@@ -696,6 +715,7 @@
   buildDamageRows();
   buildTraitList();
   buildRefTable();
+  applyRefState();
   refreshProfiles();
   render();
 })();

@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="app">
 
   <!-- ============ Calculator ============ -->
   <div class="panel calc">
@@ -140,8 +140,10 @@
 
   <!-- ============ Reference ============ -->
   <aside class="panel reference">
-    <div class="colhead">Standard CR Reference</div>
-    <div class="ref-scroll">
+    <button class="colhead ref-toggle" id="refToggle" type="button" aria-expanded="false" aria-controls="refScroll">
+      <span id="refToggleLabel">Standard CR Reference</span>
+    </button>
+    <div class="ref-scroll" id="refScroll" hidden>
       <table class="ref">
         <colgroup>
           <col class="c-cr"><col class="c-xp"><col class="c-pb"><col class="c-ac">
