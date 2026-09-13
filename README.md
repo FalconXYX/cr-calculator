@@ -58,10 +58,12 @@ Page views are counted with [Cloudflare Web Analytics](https://developers.cloudf
 loaded from a small inline snippet at the bottom of `index.html`. It is
 cookieless and anonymous, so no consent banner is required.
 
-The snippet does nothing until a beacon token is set — no request, no
-errors — so the site runs fine without one. To enable it, get a token from
-the Cloudflare dashboard under **Analytics & Logs → Web Analytics → Add a
-site** and paste it into the `token` variable in that snippet. The token is
-not a secret; it only identifies which site the beacon reports to.
+The snippet skips local development — `file://`, `localhost` and
+`127.0.0.1` report nothing — so working on the site does not inflate the
+numbers. Only a real host counts.
+
+The beacon token sits in that snippet. It is not a secret; it only
+identifies which site the beacon reports to, and is visible in the page
+source of every site using Cloudflare's analytics.
 
 ## Credit
