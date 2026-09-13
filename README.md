@@ -55,15 +55,14 @@ be tested on its own.
 ## Analytics
 
 Page views are counted with [Cloudflare Web Analytics](https://developers.cloudflare.com/web-analytics/),
-loaded from a small inline snippet at the bottom of `index.html`. It is
-cookieless and anonymous, so no consent banner is required.
+via the beacon snippet at the bottom of `index.html`. It is cookieless and
+anonymous, so no consent banner is required.
 
-The snippet skips local development — `file://`, `localhost` and
-`127.0.0.1` report nothing — so working on the site does not inflate the
-numbers. Only a real host counts.
+The beacon token in that snippet is not a secret. It only identifies which
+site the beacon reports to, and is visible in the page source of every site
+using Cloudflare's analytics.
 
-The beacon token sits in that snippet. It is not a secret; it only
-identifies which site the beacon reports to, and is visible in the page
-source of every site using Cloudflare's analytics.
+Note that the beacon fires from any host, local development included, so
+opening the page while working on it is counted as a view.
 
 ## Credit

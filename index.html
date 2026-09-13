@@ -164,25 +164,7 @@
 
 <div class="popover" id="popover" role="tooltip" hidden></div>
 
-<!-- Cloudflare Web Analytics. Cookieless and anonymous, so no consent
-     banner is needed. The token is not a secret: it only says which site
-     the beacon reports to, and is visible in the page source of every
-     site using this. -->
-<script>
-  (function () {
-    var token = '64feb20d450c410a96472d9a5366a549';
-    // Don't report from local development, or your own work inflates the
-    // numbers. Only a real host on http(s) counts.
-    var host = location.hostname;
-    if (location.protocol === 'file:' || !host ||
-        host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return;
-    var beacon = document.createElement('script');
-    beacon.type = 'module';        // Cloudflare ships beacon.min.js as an ES module
-    beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js';
-    beacon.setAttribute('data-cf-beacon', JSON.stringify({ token: token }));
-    document.head.appendChild(beacon);
-  })();
-</script>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "f9aa5426f0964a10bf45e2b12a182920"}'></script><!-- End Cloudflare Web Analytics -->
 
 <script src="js/data.js"></script>
 <script src="js/engine.js"></script>
