@@ -96,8 +96,8 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   font-family: var(--serif);
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 14.5px;
+  line-height: 1.35;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -135,10 +135,10 @@ body {
   background: var(--head-bg);
   color: var(--head-fg);
 }
-.titlebar h1 { margin: 0; font-size: 19px; font-style: italic; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.titlebar h1 { margin: 0; font-size: 21px; font-style: italic; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
 
 .titlebar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.titlebar-right label { font-size: 11.5px; opacity: .8; white-space: nowrap; }
+.titlebar-right label { font-size: 13px; opacity: .8; white-space: nowrap; }
 /* Keeps each cluster together when the bar wraps on a narrow window. */
 .tb-group { display: flex; align-items: center; gap: 4px; }
 .tb-group + .tb-group { padding-left: 6px; border-left: 1px solid var(--head-line); }
@@ -150,18 +150,18 @@ body {
   border-color: var(--head-line);
   background: var(--head-field);
   color: var(--head-fg);
-  padding: 2px 4px;
-  font-size: 12px;
+  padding: 3px 5px;
+  font-size: 13.5px;
 }
 .titlebar-right .info-btn { background: var(--head-field); border-color: var(--head-line); color: var(--head-fg); }
 
 .icon-btn {
-  width: 24px; height: 24px; padding: 0;
+  width: 27px; height: 27px; padding: 0;
   border: 1px solid var(--head-line);
   border-radius: 3px;
   background: transparent;
   color: var(--head-fg);
-  font-size: 12px;
+  font-size: 13.5px;
   cursor: pointer;
 }
 .icon-btn:hover { background: var(--head-hover); }
@@ -175,8 +175,8 @@ body {
 }
 .cell {
   display: flex; align-items: center; gap: 6px;
-  min-width: 0; min-height: 26px;
-  padding: 2px 7px;
+  min-width: 0; min-height: 30px;
+  padding: 2px 8px;
 }
 .cell + .cell { border-left: 1px solid var(--line); }
 .cell.wide { grid-column: 1 / -1; }
@@ -184,37 +184,37 @@ body {
 
 .cell label, .cell > span {
   flex: 1; min-width: 0;
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--muted);
   display: flex; align-items: center; gap: 4px;
 }
 .cell.out b {
   flex: none;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.cell.out b small { font-family: var(--sans); font-size: 10px; font-weight: 400; color: var(--muted); }
+.cell.out b small { font-family: var(--sans); font-size: 11.5px; font-weight: 400; color: var(--muted); }
 
 .cell.result { background: var(--result-bg); }
-.cell.result > span { color: var(--result); font-weight: 700; font-size: 12px; }
-.cell.result b { color: var(--result); font-size: 16px; }
+.cell.result > span { color: var(--result); font-weight: 700; font-size: 13.5px; }
+.cell.result b { color: var(--result); font-size: 18px; }
 
 .cell.muted-out { opacity: .42; }
 
-.lbl-cell { font-size: 12px; font-weight: 700; }
+.lbl-cell { font-size: 13.5px; font-weight: 700; }
 
 input[type="number"], input[type="search"], select {
   flex: none;
-  width: 66px;
-  padding: 3px 5px;
+  width: 72px;
+  padding: 4px 6px;
   border: 1px solid var(--field-edge);
   border-radius: 2px;
   background: var(--field);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 14px;
   text-align: center;
 }
 select { width: auto; max-width: 100%; font-family: var(--serif); text-align: left; }
@@ -229,7 +229,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   border-bottom: 1px solid var(--line);
   background: var(--alt);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -244,19 +244,19 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 .colhead {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  padding: 4px 8px;
+  padding: 6px 9px;
   background: var(--head-bg);
   color: var(--head-fg);
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 700;
   font-style: italic;
 }
 
 .sechead {
-  padding: 3px 8px;
+  padding: 4px 9px;
   background: var(--sec-bg);
   color: var(--sec-fg);
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 700;
   font-style: italic;
   text-align: center;
@@ -270,7 +270,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   background: var(--alt);
   border-bottom: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -282,25 +282,25 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   text-align: center;
 }
 .dmg tbody tr:last-child td { border-bottom: 1px solid var(--line); }
-.dmg td:first-child { font-size: 11px; font-style: italic; color: var(--muted); width: 38px; }
+.dmg td:first-child { font-size: 12.5px; font-style: italic; color: var(--muted); width: 38px; }
 /* Cap the inputs so the two damage columns stay compact instead of
    stretching to fill whatever width the table has spare. */
 .dmg input { width: 100%; max-width: 92px; }
-.dmg .by-round { font-family: var(--mono); font-size: 12px; font-weight: 700; width: 54px; }
+.dmg .by-round { font-family: var(--mono); font-size: 13.5px; font-weight: 700; width: 60px; }
 .dmg tfoot td { background: var(--alt); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .dmg-actions { text-align: left; white-space: nowrap; }
-.dmg-avg-lbl { font-size: 10.5px; font-style: italic; color: var(--muted); text-align: right; }
-.dmg .by-round.strong { font-size: 13px; }
+.dmg-avg-lbl { font-size: 12px; font-style: italic; color: var(--muted); text-align: right; }
+.dmg .by-round.strong { font-size: 14.5px; }
 
 .mini {
-  padding: 1px 6px;
-  margin-right: 3px;
+  padding: 3px 8px;
+  margin-right: 4px;
   border: 1px solid var(--field-edge);
   border-radius: 2px;
   background: var(--field);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 .mini:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
@@ -313,13 +313,13 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   border-radius: 8px;
   background: var(--head-line);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 700;
 }
 .pill.on { background: var(--accent-solid); color: #fff; }
 
-.tip { margin: 0; padding: 4px 7px; font-size: 10.5px; color: var(--muted); border-bottom: 1px solid var(--line-soft); }
+.tip { margin: 0; padding: 5px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line-soft); }
 
 .searchbar { padding: 4px 6px; border-bottom: 1px solid var(--line-soft); }
 .searchbar input { width: 100%; }
@@ -330,12 +330,31 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   overscroll-behavior: contain;
 }
 
-/* On desktop, run the list nearly to the bottom of the window so as many
-   CR-affecting traits as possible are visible without scrolling — but stop
-   short enough that the collapsed reference bar below stays on screen,
-   otherwise its toggle sits permanently just out of view. */
+/* On desktop the calculator claims the whole window: the Monster Maker and
+   reference bars sit just below the fold and are scrolled to, rather than
+   taking a slice off the top of the one thing the page is for.
+
+   The panel is a column flexbox so the trait list absorbs whatever height is
+   left over, instead of a hand-tuned `100vh - n` that drifts every time the
+   chrome above it changes. `min-height` rather than `height` so a tall stats
+   column can still push past the fold rather than being clipped. */
 @media (min-width: 701px) {
-  .trait-list { max-height: calc(100vh - 244px); }
+  .app > .calc {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 18px);
+    /* A fixed height is what lets the trait list shrink to fit — under
+       `min-height` the list just grows to its content and pushes the panel
+       past the fold. The floor stops a very short window from squeezing the
+       stats column into nothing. */
+    min-height: 480px;
+  }
+  .app > .calc > .panes { flex: 1 1 auto; min-height: 0; }
+  /* Below the floor there is nothing left to give, so scroll rather than
+     clip: `.panel` uses `overflow: clip`, which would swallow the overflow. */
+  .panes > .stats { overflow-y: auto; }
+  .panes > .traits { display: flex; flex-direction: column; min-height: 0; }
+  .trait-list { flex: 1 1 0; min-height: 0; max-height: none; }
 }
 
 .grouphead {
@@ -344,7 +363,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   background: var(--alt);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line-soft);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   font-family: var(--sans);
   text-transform: uppercase;
@@ -365,29 +384,29 @@ button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
 
 .trait {
   display: flex; align-items: center; gap: 5px;
-  padding: 1px 7px;
-  min-height: 22px;
+  padding: 2px 8px;
+  min-height: 26px;
   border-bottom: 1px solid var(--line-soft);
-  font-size: 12.5px;
+  font-size: 14px;
 }
 .trait:hover { background: var(--alt); }
 .trait-main { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; cursor: pointer; }
-.trait input[type="checkbox"] { flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.trait input[type="checkbox"] { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .trait-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trait.checked .trait-name { color: var(--accent); font-weight: 700; }
 .trait.gated .trait-name { text-decoration: line-through; opacity: .5; }
-.trait input[type="number"] { width: 46px; padding: 1px 3px; font-size: 11px; }
+.trait input[type="number"] { width: 54px; padding: 2px 4px; font-size: 12.5px; }
 .trait.readonly .trait-name { color: var(--muted); }
 
 .info-btn {
   flex: none;
-  width: 15px; height: 15px; padding: 0;
+  width: 17px; height: 17px; padding: 0;
   border: 1px solid var(--field-edge);
   border-radius: 50%;
   background: var(--alt);
   color: var(--muted);
   font-family: var(--serif);
-  font-size: 10px;
+  font-size: 11.5px;
   font-style: italic;
   font-weight: 700;
   line-height: 1;
@@ -407,15 +426,15 @@ button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
   border-top: 1px solid var(--line);
   padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
 }
-.overall-lbl { font-size: 13px; font-weight: 700; font-style: italic; }
+.overall-lbl { font-size: 14.5px; font-weight: 700; font-style: italic; }
 .overall-cr {
   font-family: var(--serif);
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 700;
   line-height: 1;
   color: var(--result-solid);
 }
-.overall-meta { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; opacity: .75; }
+.overall-meta { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; opacity: .75; }
 
 .flag {
   padding: 1px 6px;
@@ -423,24 +442,31 @@ button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
   background: var(--highlight);
   color: var(--highlight-fg);
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
 }
 .flag[hidden] { display: none; }
 
 .btn {
-  padding: 3px 9px;
+  padding: 4px 11px;
   border: 1px solid var(--head-line);
   border-radius: 2px;
   background: transparent;
   color: var(--head-fg);
   font-family: var(--serif);
-  font-size: 11.5px;
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 .btn:hover { background: var(--head-hover); }
+.btn.vibe {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: #fff;
+  font-weight: 700;
+}
+.btn.vibe:hover { filter: brightness(1.12); }
 
 /* ---------------- Reference ---------------- */
 
@@ -462,17 +488,18 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 @media (min-width: 1081px) {
   .app.ref-open { grid-template-columns: minmax(0, 1fr) 304px; }
-  .app.ref-open .reference { position: sticky; top: 9px; }
+  .app.ref-open > .calc, .app.ref-open > .monster { grid-column: 1; }
+  .app.ref-open > .reference { grid-column: 2; grid-row: 1; position: sticky; top: 9px; }
   .app.ref-open .ref-scroll { max-height: calc(100vh - 120px); }
 }
-.ref { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10px; table-layout: fixed; }
+.ref { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; table-layout: fixed; }
 .ref th {
   position: sticky; top: 0; z-index: 1;
   padding: 3px 2px;
   background: var(--alt);
   border-bottom: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--muted);
@@ -505,19 +532,19 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   border-radius: 3px;
   background: var(--panel);
   box-shadow: var(--shadow);
-  font-size: 12px;
-  line-height: 1.42;
+  font-size: 13.5px;
+  line-height: 1.45;
 }
 .popover[hidden] { display: none; }
-.pop-title { font-size: 14px; font-weight: 700; font-style: italic; }
-.pop-example { font-size: 10.5px; color: var(--muted); margin-bottom: 5px; }
+.pop-title { font-size: 15.5px; font-weight: 700; font-style: italic; }
+.pop-example { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 .pop-desc { margin: 0; }
 .pop-effect {
   margin: 7px 0 0;
   padding: 5px 8px;
   border-left: 3px solid var(--accent);
   background: var(--accent-bg);
-  font-size: 11.5px;
+  font-size: 13px;
 }
 .pop-effect b {
   display: block;
@@ -529,7 +556,340 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   color: var(--accent);
   margin-bottom: 1px;
 }
-.pop-gate { margin: 6px 0 0; font-size: 11px; font-weight: 700; color: var(--result); }
+.pop-gate { margin: 6px 0 0; font-size: 12.5px; font-weight: 700; color: var(--result); }
+
+/* ---------------- Vibe check report ---------------- */
+
+/* Sits in the room the stats column has spare under Offensive CR, so it
+   costs no height anywhere else. Nothing here goes below the calculator's
+   own type sizes. */
+.vibe-report {
+  padding: 8px 10px;
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.vibe-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 5px;
+}
+.vibe-head b {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--accent);
+}
+.vibe-col + .vibe-col { margin-top: 7px; }
+.vibe-col > span {
+  display: block;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+.vibe-col.warn > span { color: var(--result); }
+.vibe-col ul { margin: 0; padding-left: 17px; }
+.vibe-report .mini { padding: 1px 7px; line-height: 1.2; }
+
+/* ---------------- Monster Maker ---------------- */
+
+/* The header doubles as the toggle, same as the reference panel, so the
+   collapsed state is a single thin bar rather than a section of its own. */
+.mm-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.beta {
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--highlight);
+  color: var(--highlight-fg);
+  font-family: var(--sans);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  line-height: 1.3;
+}
+
+.mm-body[hidden] { display: none; }
+
+/* Options on the left, the block they build on the right. Each side scrolls
+   on its own so a long list of actions never pushes the block off screen. */
+.mm-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  min-height: 0;
+}
+/* No `overscroll-behavior: contain` here, unlike the trait list. These panes
+   fill the screen, so once one reaches its end the wheel should carry on and
+   move the page — containing it just makes the window feel stuck. */
+.mm-editor, .mm-preview {
+  min-width: 0;
+  max-height: clamp(400px, calc(100vh - 210px), 680px);
+  overflow-y: auto;
+}
+.mm-editor { border-right: 1px solid var(--line); }
+.mm-preview { padding: 13px; background: var(--alt); }
+.mm-tools { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; max-width: 720px; }
+.mm-tools .mm-note { margin: 0; }
+
+/* Open, it takes the window the same way the calculator does — you scroll to
+   it and it is the whole screen, which is what lets the text be legible
+   rather than a miniature of the calculator's density.
+
+   Only once the panes are side by side: stacking two full-height panes inside
+   one screen would leave neither of them usable.
+
+   `grid-template-rows: minmax(0, 1fr)` is load-bearing. A grid's default auto
+   row GROWS past a container with a definite height, so opening a long
+   section pushed the pane past the panel and `.panel { overflow: clip }` ate
+   the rest — the bottom of the section was simply unreachable. Capping the
+   row and letting the panes shrink below their content is what hands the
+   overflow to `overflow-y: auto` instead. */
+@media (min-width: 861px) {
+  .app > .monster.open {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 18px);
+    min-height: 480px;
+  }
+  .app > .monster.open > .mm-body { flex: 1 1 auto; min-height: 0; }
+  .app > .monster.open .mm-panes { height: 100%; grid-template-rows: minmax(0, 1fr); }
+  .app > .monster.open .mm-editor,
+  .app > .monster.open .mm-preview { max-height: none; height: auto; min-height: 0; }
+}
+
+/* ---- Accordion ---- */
+
+.mm-sec-head {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.mm-sec-head:hover { background: var(--alt); }
+.mm-sec.open .mm-sec-head {
+  background: var(--accent-solid);
+  border-bottom-color: var(--accent-solid);
+  color: #fff;
+}
+
+.mm-chev {
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform .12s ease;
+}
+.mm-sec.open .mm-chev { background: var(--panel); color: var(--accent); transform: rotate(90deg); }
+.mm-sec-title { flex: 1; min-width: 0; }
+.mm-sec.open .pill { background: rgba(255, 255, 255, .28); color: #fff; }
+.mm-sec-head .pill { font-size: 12px; padding: 1px 8px; }
+
+/* A column with a real gap: stacked straight onto each other the fields read
+   as one undifferentiated block. */
+.mm-sec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 10px;
+  background: var(--alt);
+  border-bottom: 1px solid var(--line);
+}
+/* The gap owns the spacing now, so nothing inside adds its own. */
+.mm-sec-body > .mm-note { margin: 0; }
+
+/* ---- Fields ---- */
+
+.mm-field { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.mm-label { flex: none; width: 96px; font-size: 13px; color: var(--muted); }
+.mm-field select { flex: 1; min-width: 0; }
+.mm-suffix { font-size: 12px; color: var(--muted); }
+.mm-num { flex: none; width: 68px; }
+.monster input[type="number"], .monster select { font-size: 14px; padding: 4px 6px; }
+
+.mm-text {
+  flex: 1; min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--field-edge);
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 14.5px;
+}
+
+.mm-textarea {
+  display: block;
+  width: 100%;
+  padding: 6px 7px;
+  border: 1px solid var(--field-edge);
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.4;
+  resize: vertical;
+}
+.mm-text:focus-visible, .mm-textarea:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 1px;
+}
+
+.mm-check { display: flex; align-items: center; gap: 7px; min-height: 28px; font-size: 14px; cursor: pointer; }
+.mm-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+.mm-note { margin: 5px 0; font-size: 12.5px; line-height: 1.4; font-style: italic; color: var(--muted); }
+.mm-note b { font-style: normal; color: var(--text); }
+
+.mm-ability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; }
+.mm-ability { display: flex; align-items: center; gap: 4px; }
+.mm-ability .mm-label { width: 36px; font-family: var(--sans); font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+.mm-mod { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+
+.mm-readout { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; align-items: baseline; }
+.mm-readout span { font-size: 13px; color: var(--muted); }
+.mm-readout b { font-family: var(--mono); font-size: 15px; }
+
+/* ---- Chips ---- */
+
+.mm-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  padding: 5px 11px;
+  border: 1px solid var(--field-edge);
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.on { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+
+/* Proficient fills; expertise adds a ring on top, so the two tiers differ by
+   shape as well as by fill rather than by hue alone. */
+.chip.tier-proficient { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+.chip.tier-expertise {
+  background: var(--accent-solid);
+  border-color: var(--highlight);
+  color: #fff;
+  box-shadow: inset 0 0 0 2px var(--highlight);
+}
+.chip.custom { background: var(--result-solid); border-color: var(--result-solid); }
+.mm-chip-add { display: flex; gap: 3px; flex: 1 1 120px; min-width: 120px; }
+.mm-chip-add .mm-text { font-size: 13px; padding: 3px 6px; }
+
+/* Yellow is the palette's "look at this one thing", which is exactly what a
+   warning is. It never blocks the choice, so it stays a note rather than an
+   error colour. */
+.mm-warn {
+  padding: 8px 10px;
+  border-left: 3px solid var(--highlight);
+  border-radius: 2px;
+  background: var(--panel);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.mm-warn p { margin: 0; }
+.mm-warn p + p { margin-top: 7px; }
+.mm-warn b { display: block; }
+
+/* ---- Entries ---- */
+
+.mm-entries { display: flex; flex-direction: column; gap: 7px; }
+.mm-entry { padding: 6px; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--panel); }
+.mm-entry-top { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; }
+.monster .mini { font-size: 12.5px; padding: 3px 9px; }
+.mm-entry-controls { display: flex; gap: 5px; margin-bottom: 5px; }
+.mm-entry-controls select { flex: 1 1 0; min-width: 0; }
+.mm-entry-name { font-weight: 700; }
+.mini.danger:hover:not(:disabled) { border-color: var(--result); color: var(--result); }
+.mm-add { align-self: flex-start; margin-top: 1px; }
+
+/* ---- The block itself ---- */
+
+/* A card on the ground, the way a printed stat block sits on the page.
+   Pink already means "challenge rating" everywhere else in the app, which
+   makes it the natural stand-in for the maroon of the printed blocks. */
+.sb {
+  padding: 16px 19px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.45;
+  max-width: 720px;
+}
+.sb-name {
+  margin: 0;
+  font-size: 28px;
+  font-variant-caps: small-caps;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--result);
+}
+.sb-meta { margin: 2px 0 0; font-size: 13.5px; font-style: italic; }
+
+.sb-rule {
+  height: 3px;
+  margin: 8px 0;
+  background: linear-gradient(90deg, var(--result) 0%, var(--result) 55%, transparent 100%);
+}
+
+.sb-line { margin: 2px 0; }
+.sb-key { font-weight: 700; color: var(--result); }
+
+.sb-abilities { width: 100%; border-collapse: collapse; text-align: center; }
+.sb-abilities th {
+  padding: 1px 2px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: var(--result);
+}
+.sb-abilities td { padding: 1px 2px; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+
+.sb-head {
+  margin: 14px 0 5px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--result);
+  font-size: 19px;
+  font-variant-caps: small-caps;
+  font-weight: 700;
+  color: var(--result);
+}
+.sb-entry { margin: 0 0 8px; }
+.sb-entry-name { font-style: italic; font-weight: 700; }
+.sb-para { display: block; margin-top: 5px; }
+
+@media (max-width: 860px) {
+  .mm-panes { grid-template-columns: minmax(0, 1fr); }
+  .mm-editor { border-right: 0; border-bottom: 1px solid var(--line); }
+  .mm-editor, .mm-preview { max-height: none; }
+}
 
 /* ---------------- Responsive ---------------- */
 

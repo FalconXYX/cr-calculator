@@ -2,7 +2,9 @@ import { NumberField, OutCell, Row, signed } from './Fields.tsx';
 import { InfoButton } from './Popover.tsx';
 import { DamageTable } from './DamageTable.tsx';
 import { HELP } from '../lib/help.ts';
+import { VibeReportStrip } from './VibeReport.tsx';
 import type { CalcState, Result } from '../lib/types.ts';
+import type { VibeReport } from '../lib/vibeCheck.ts';
 
 interface Props {
   state: CalcState;
@@ -11,10 +13,12 @@ interface Props {
   onSetDamage: (which: 'primary' | 'secondary', index: number, value: number) => void;
   onAddRound: () => void;
   onRemoveRound: () => void;
+  vibeReport: VibeReport | null;
+  onDismissVibe: () => void;
 }
 
 export function StatsPanel({
-  state, result, set, onSetDamage, onAddRound, onRemoveRound,
+  state, result, set, onSetDamage, onAddRound, onRemoveRound, vibeReport, onDismissVibe,
 }: Props) {
   const { effective: eff, defensive: def, offensive: off } = result;
   const usingAttack = off.offenseBy === 'attack';
@@ -101,6 +105,8 @@ export function StatsPanel({
       <Row>
         <OutCell label="Offensive CR" value={off.row.cr} wide result />
       </Row>
+
+      {vibeReport && <VibeReportStrip report={vibeReport} onDismiss={onDismissVibe} />}
     </section>
   );
 }

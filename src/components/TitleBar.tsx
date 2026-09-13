@@ -9,6 +9,7 @@ interface Props {
   theme: 'light' | 'dark';
   onTheme: () => void;
   onReset: () => void;
+  onVibeCheck: () => void;
   profileNames: string[];
   currentProfile: string;
   onLoadProfile: (name: string) => void;
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export function TitleBar({
-  tierId, onTier, theme, onTheme, onReset,
+  tierId, onTier, theme, onTheme, onReset, onVibeCheck,
   profileNames, currentProfile, onLoadProfile, onSaveProfile, onDeleteProfile,
 }: Props) {
   return (
@@ -57,6 +58,12 @@ export function TitleBar({
             {TIERS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
           <InfoButton content={HELP.tier!} label="What does the target CR range change?" />
+        </span>
+        <span className="tb-group">
+          <button className="btn vibe" type="button" onClick={onVibeCheck}>
+            Vibe Check CR
+          </button>
+          <InfoButton content={HELP.vibe!} label="What does a vibe check do?" />
         </span>
         <button className="btn" type="button" onClick={onReset}>Reset</button>
         <button

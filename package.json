@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false",
-    "test": "node --experimental-strip-types test/engine.test.ts"
+    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

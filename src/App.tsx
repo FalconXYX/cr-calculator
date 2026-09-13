@@ -5,14 +5,22 @@ import { usePersistentState, readStored, writeStored } from './hooks/usePersiste
 import { PopoverProvider } from './components/Popover.tsx';
 import { TitleBar } from './components/TitleBar.tsx';
 import { BaselineStrip } from './components/BaselineStrip.tsx';
+import { vibeCheck } from './lib/vibeCheck.ts';
+import type { VibeReport } from './lib/vibeCheck.ts';
 import { StatsPanel } from './components/StatsPanel.tsx';
 import { TraitsPanel } from './components/TraitsPanel.tsx';
+import { MonsterMaker } from './components/MonsterMaker.tsx';
+import { MonsterMakerBody } from './components/monster/MonsterMakerBody.tsx';
+import { defaultStatBlock, reviveStatBlock } from './lib/statblock.ts';
+import type { StatBlock } from './lib/statblock.ts';
 import { ReferencePanel } from './components/ReferencePanel.tsx';
 import { OverallBar } from './components/OverallBar.tsx';
 
 const STATE_KEY = 'cr-calc-state-v3';
 const THEME_KEY = 'cr-calc-theme';
 const REF_KEY = 'cr-calc-ref-open';
+const MONSTER_KEY = 'cr-calc-monster-open';
+const STATBLOCK_KEY = 'cr-calc-statblock-v1';
 const PROFILE_KEY = 'cr-calc-profiles';
 
 const DEFAULTS: CalcState = {
@@ -45,6 +53,7 @@ function reviveState(raw: unknown): CalcState {
 export default function App() {
   const [state, setState] = usePersistentState<CalcState>(STATE_KEY, DEFAULTS, reviveState);
   const [search, setSearch] = useState('');
+  const [vibeReport, setVibeReport] = useState<VibeReport | null>(null);
   const [showNoEffect, setShowNoEffect] = useState(false);
 
   /* Chrome preferences live in their own keys, not the calculation state, so
@@ -55,6 +64,9 @@ export default function App() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
   const [refOpen, setRefOpen] = useState(() => readStored<boolean>(REF_KEY, false));
+  const [monsterOpen, setMonsterOpen] = useState(() => readStored<boolean>(MONSTER_KEY, false));
+  const [statblock, setStatblock] = usePersistentState<StatBlock>(
+    STATBLOCK_KEY, defaultStatBlock(), reviveStatBlock);
 
   const [profiles, setProfiles] = useState<Record<string, CalcState>>(
     () => readStored<Record<string, CalcState>>(PROFILE_KEY, {}));
@@ -66,6 +78,7 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => { writeStored(REF_KEY, refOpen); }, [refOpen]);
+  useEffect(() => { writeStored(MONSTER_KEY, monsterOpen); }, [monsterOpen]);
 
   const set = useCallback(<K extends keyof CalcState>(key: K, value: CalcState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
@@ -155,10 +168,22 @@ export default function App() {
     setCurrentProfile('');
   }, [currentProfile, profiles, persistProfiles]);
 
+  /* Reads the block below and overwrites the calculator with it. The report
+     of what it could and could not work out goes in the space under Offensive
+     CR — anywhere above the panes it would take its height out of the trait
+     list, since the calculator is pinned to exactly one screen. */
+  const runVibeCheck = useCallback(() => {
+    const { next, report } = vibeCheck(statblock, state);
+    setState(next);
+    setVibeReport(report);
+    setCurrentProfile('');
+  }, [statblock, state, setState]);
+
   const reset = useCallback(() => {
     setState(structuredClone(DEFAULTS));
     setCurrentProfile('');
     setSearch('');
+    setVibeReport(null);
   }, [setState]);
 
   const profileNames = useMemo(
@@ -175,6 +200,7 @@ export default function App() {
             theme={theme}
             onTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             onReset={reset}
+            onVibeCheck={runVibeCheck}
             profileNames={profileNames}
             currentProfile={currentProfile}
             onLoadProfile={loadProfile}
@@ -191,6 +217,8 @@ export default function App() {
               onSetDamage={setDamage}
               onAddRound={addRound}
               onRemoveRound={removeRound}
+              vibeReport={vibeReport}
+              onDismissVibe={() => setVibeReport(null)}
             />
             <TraitsPanel
               traits={state.traits}
@@ -207,6 +235,17 @@ export default function App() {
 
           <OverallBar result={result} />
         </div>
+
+        <MonsterMaker
+          open={monsterOpen}
+          onToggle={() => setMonsterOpen((v) => !v)}
+        >
+          <MonsterMakerBody
+            sb={statblock}
+            onChange={setStatblock}
+            row={result.final.row}
+          />
+        </MonsterMaker>
 
         <ReferencePanel
           open={refOpen}
