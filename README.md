@@ -4,7 +4,7 @@ Works out a D&D 5e monster's challenge rating from its defensive and
 offensive statistics, following the "Creating a Monster Stat Block"
 procedure in the Dungeon Master's Guide.
 
-No build step and no dependencies — open `index.html`, or serve the folder.
+React + TypeScript, built with Vite.
 
 ## What it does
 
@@ -39,18 +39,36 @@ Two more details worth knowing:
 At CR 0 the reference table lists ceilings rather than targets (AC ≤13,
 attack ≤+3, DC ≤13), so falling below them is not penalised.
 
+## Running it
+
+```
+npm install
+npm run dev      # local dev server
+npm test         # engine regression tests
+npm run build    # typecheck + production build into dist/
+```
+
+Deploys itself to GitHub Pages on every push to `main` via
+`.github/workflows/deploy.yml`. The workflow runs the engine tests first, so
+a change that breaks the CR maths never reaches the site.
+
 ## Layout
 
 ```
-index.html        markup
-css/styles.css    five-colour palette, light and dark
-js/data.js        CR table, target tiers, trait catalogue
-js/engine.js      the maths — pure functions, no DOM
-js/app.js         interface wiring
+index.html              Vite entry
+src/main.tsx            React root
+src/App.tsx             state, and the only place it lives
+src/lib/types.ts        shared shapes
+src/lib/crTable.ts      Monster Statistics by CR, and the target tiers
+src/lib/traits.ts       the 94-entry feature catalogue
+src/lib/engine.ts       the maths — pure functions, no DOM, no React
+src/components/         Popover, panels, fields
+test/engine.test.ts     regression tests, one block per historic bug
 ```
 
-`js/engine.js` deliberately touches no DOM so the challenge-rating logic can
-be tested on its own.
+`src/lib/engine.ts` deliberately imports nothing from React and touches no
+DOM, so the challenge-rating logic can be tested on its own — `npm test`
+runs it directly under Node with no browser and no test framework.
 
 ## Analytics
 

@@ -1,0 +1,557 @@
+/* ------------------------------------------------------------------
+   CR Calculator — dense table layout on a five-colour palette.
+   ------------------------------------------------------------------ */
+
+/* Palette
+   yellow #fffc31 · ivory #f6f7eb · charcoal #494949
+   blue-bell #2892d7 · bubblegum pink #ff5d73
+
+   Roles: charcoal carries the chrome, ivory the surfaces, blue-bell marks
+   anything interactive, pink marks a challenge rating, yellow flags the
+   one thing you should be looking at.
+
+   Blue and pink each get two forms — a `-solid` for fills, where the pure
+   palette colour reads fine, and a text-safe form. The pure colours only
+   reach about 3:1 against ivory, which is short of the 4.5:1 that 12px
+   labels need, so the text form is shifted until it clears. */
+:root {
+  --bg:          #dcdec9;
+  --panel:       #f6f7eb;
+  --alt:         #eceedd;
+  --field:       #fdfdf7;
+  --field-edge:  #b4b6a2;
+  --line:        #b4b6a2;
+  --line-soft:   #dbdcc8;
+  --text:        #2f2f2f;
+  --muted:       #6b6b6b;
+
+  --head-bg:     #494949;
+  --head-fg:     #f6f7eb;
+  --head-line:   #6d6d6d;
+  --head-hover:  #5c5c5c;
+  --head-field:  #3a3a3a;
+  --sec-bg:      #636363;
+  --sec-fg:      #f6f7eb;
+
+  --accent:      #17699f;
+  --accent-solid:#2892d7;
+  --accent-bg:   #ddeffb;
+  --result:      #c22a42;
+  --result-solid:#ff5d73;
+  --result-bg:   #ffe3e7;
+  --highlight:   #fffc31;
+  --highlight-fg:#3b3b00;
+
+  --shadow: 0 2px 10px rgba(60, 60, 45, .25);
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Dark.
+
+   Charcoal is a neutral grey, so taking it straight down produced flat mud
+   with nothing separating the layers. Instead the greys carry a little of
+   the blue-bell hue, which gives the ground some character and lets the
+   warm ivory text and yellow highlight sit against it rather than in it.
+
+   The header stays the DARKEST band, as it is in light mode. Making it the
+   lightest thing on screen inverted the hierarchy and read as floating.
+   Inputs sink below the panel; section bars lift above it. */
+[data-theme="dark"] {
+  --bg:          #0f1319;
+  --panel:       #1a1f27;
+  --alt:         #232935;
+  --field:       #10141a;
+  --field-edge:  #3d4654;
+  --line:        #333c4a;
+  --line-soft:   #262d38;
+  --text:        #f6f7eb;
+  --muted:       #97a2b2;
+
+  --head-bg:     #080b0f;
+  --head-fg:     #f6f7eb;
+  --head-line:   #3a4453;
+  --head-hover:  #232b36;
+  --head-field:  #1a212b;
+  --sec-bg:      #313b49;
+  --sec-fg:      #f6f7eb;
+
+  --accent:      #63b5ee;
+  --accent-solid:#2892d7;
+  --accent-bg:   #11293b;
+  --result:      #ff8b9d;
+  --result-solid:#ff5d73;
+  --result-bg:   #3a1e28;
+  --highlight:   #fffc31;
+  --highlight-fg:#2e2e00;
+
+  --shadow: 0 4px 16px rgba(0, 0, 0, .7);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------- Shell ---------------- */
+
+/* Collapsed is the default, so the reference is a thin bar under the
+   calculator and the calculator gets the full width. It only claims a
+   column of its own once opened, and only if there is room for one. */
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 9px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  /* clip, not hidden: `overflow: hidden` would make this the scroll container
+     for the sticky Overall CR bar and quietly stop it sticking. */
+  overflow: clip;
+}
+
+.titlebar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 5px;
+  padding: 6px 10px;
+  background: var(--head-bg);
+  color: var(--head-fg);
+}
+.titlebar h1 { margin: 0; font-size: 19px; font-style: italic; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+
+.titlebar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.titlebar-right label { font-size: 11.5px; opacity: .8; white-space: nowrap; }
+/* Keeps each cluster together when the bar wraps on a narrow window. */
+.tb-group { display: flex; align-items: center; gap: 4px; }
+.tb-group + .tb-group { padding-left: 6px; border-left: 1px solid var(--head-line); }
+#profileSelect { max-width: 130px; }
+#profileDelete { padding: 3px 7px; font-size: 13px; line-height: 1; }
+#profileDelete:disabled { opacity: .3; cursor: default; }
+#profileDelete:disabled:hover { background: transparent; }
+.titlebar-right select {
+  border-color: var(--head-line);
+  background: var(--head-field);
+  color: var(--head-fg);
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.titlebar-right .info-btn { background: var(--head-field); border-color: var(--head-line); color: var(--head-fg); }
+
+.icon-btn {
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid var(--head-line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--head-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.icon-btn:hover { background: var(--head-hover); }
+
+/* ---------------- Generic table rows ---------------- */
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+.cell {
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0; min-height: 26px;
+  padding: 2px 7px;
+}
+.cell + .cell { border-left: 1px solid var(--line); }
+.cell.wide { grid-column: 1 / -1; }
+.cell.out { background: var(--alt); }
+
+.cell label, .cell > span {
+  flex: 1; min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex; align-items: center; gap: 4px;
+}
+.cell.out b {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cell.out b small { font-family: var(--sans); font-size: 10px; font-weight: 400; color: var(--muted); }
+
+.cell.result { background: var(--result-bg); }
+.cell.result > span { color: var(--result); font-weight: 700; font-size: 12px; }
+.cell.result b { color: var(--result); font-size: 16px; }
+
+.cell.muted-out { opacity: .42; }
+
+.lbl-cell { font-size: 12px; font-weight: 700; }
+
+input[type="number"], input[type="search"], select {
+  flex: none;
+  width: 66px;
+  padding: 3px 5px;
+  border: 1px solid var(--field-edge);
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: center;
+}
+select { width: auto; max-width: 100%; font-family: var(--serif); text-align: left; }
+input[type="search"] { width: 100%; font-family: var(--serif); text-align: left; }
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 1px;
+}
+
+.baseline {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--alt);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* ---------------- Two panes ---------------- */
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+.panes > section { min-width: 0; }
+.traits { border-left: 1px solid var(--line); }
+
+.colhead {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 8px;
+  background: var(--head-bg);
+  color: var(--head-fg);
+  font-size: 13.5px;
+  font-weight: 700;
+  font-style: italic;
+}
+
+.sechead {
+  padding: 3px 8px;
+  background: var(--sec-bg);
+  color: var(--sec-fg);
+  font-size: 12px;
+  font-weight: 700;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ---------------- Damage table ---------------- */
+
+.dmg { width: 100%; border-collapse: collapse; }
+.dmg th {
+  padding: 2px 3px;
+  background: var(--alt);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.dmg td {
+  padding: 1px 3px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: center;
+}
+.dmg tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+.dmg td:first-child { font-size: 11px; font-style: italic; color: var(--muted); width: 38px; }
+/* Cap the inputs so the two damage columns stay compact instead of
+   stretching to fill whatever width the table has spare. */
+.dmg input { width: 100%; max-width: 92px; }
+.dmg .by-round { font-family: var(--mono); font-size: 12px; font-weight: 700; width: 54px; }
+.dmg tfoot td { background: var(--alt); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.dmg-actions { text-align: left; white-space: nowrap; }
+.dmg-avg-lbl { font-size: 10.5px; font-style: italic; color: var(--muted); text-align: right; }
+.dmg .by-round.strong { font-size: 13px; }
+
+.mini {
+  padding: 1px 6px;
+  margin-right: 3px;
+  border: 1px solid var(--field-edge);
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.mini:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mini:disabled { opacity: .35; cursor: default; }
+
+/* ---------------- Traits ---------------- */
+
+.pill {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--head-line);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+}
+.pill.on { background: var(--accent-solid); color: #fff; }
+
+.tip { margin: 0; padding: 4px 7px; font-size: 10.5px; color: var(--muted); border-bottom: 1px solid var(--line-soft); }
+
+.searchbar { padding: 4px 6px; border-bottom: 1px solid var(--line-soft); }
+.searchbar input { width: 100%; }
+
+.trait-list {
+  max-height: clamp(300px, calc(100vh - 470px), 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* On desktop, run the list nearly to the bottom of the window so as many
+   CR-affecting traits as possible are visible without scrolling — but stop
+   short enough that the collapsed reference bar below stays on screen,
+   otherwise its toggle sits permanently just out of view. */
+@media (min-width: 701px) {
+  .trait-list { max-height: calc(100vh - 244px); }
+}
+
+.grouphead {
+  position: sticky; top: 0; z-index: 1;
+  padding: 2px 7px;
+  background: var(--alt);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+}
+
+/* Collapsible "no effect on CR" group header. */
+button.grouptoggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-left: 0; border-right: 0;
+  cursor: pointer;
+}
+button.grouptoggle:hover { color: var(--text); background: var(--line-soft); }
+.noeffect-group[hidden] { display: none; }
+
+.trait {
+  display: flex; align-items: center; gap: 5px;
+  padding: 1px 7px;
+  min-height: 22px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+.trait:hover { background: var(--alt); }
+.trait-main { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; cursor: pointer; }
+.trait input[type="checkbox"] { flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.trait-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trait.checked .trait-name { color: var(--accent); font-weight: 700; }
+.trait.gated .trait-name { text-decoration: line-through; opacity: .5; }
+.trait input[type="number"] { width: 46px; padding: 1px 3px; font-size: 11px; }
+.trait.readonly .trait-name { color: var(--muted); }
+
+.info-btn {
+  flex: none;
+  width: 15px; height: 15px; padding: 0;
+  border: 1px solid var(--field-edge);
+  border-radius: 50%;
+  background: var(--alt);
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.info-btn:hover, .info-btn.open { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+.info-btn.static { display: inline-flex; align-items: center; justify-content: center; vertical-align: -2px; cursor: default; }
+
+/* ---------------- Overall ---------------- */
+
+.overall {
+  position: sticky; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 10px;
+  background: var(--head-bg);
+  color: var(--head-fg);
+  border-top: 1px solid var(--line);
+  padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
+}
+.overall-lbl { font-size: 13px; font-weight: 700; font-style: italic; }
+.overall-cr {
+  font-family: var(--serif);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--result-solid);
+}
+.overall-meta { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; opacity: .75; }
+
+.flag {
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--highlight);
+  color: var(--highlight-fg);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.flag[hidden] { display: none; }
+
+.btn {
+  padding: 3px 9px;
+  border: 1px solid var(--head-line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--head-fg);
+  font-family: var(--serif);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--head-hover); }
+
+/* ---------------- Reference ---------------- */
+
+.reference { position: static; }
+.ref-scroll { max-height: 340px; overflow-y: auto; }
+.ref-scroll[hidden] { display: none; }
+
+/* The header doubles as the toggle. */
+button.colhead {
+  width: 100%;
+  border: 0;
+  font-family: var(--serif);
+  text-align: left;
+  cursor: pointer;
+}
+button.colhead:hover { background: var(--head-hover); }
+button.colhead::after { content: "▸"; font-size: 11px; opacity: .8; }
+button.colhead[aria-expanded="true"]::after { content: "▾"; }
+
+@media (min-width: 1081px) {
+  .app.ref-open { grid-template-columns: minmax(0, 1fr) 304px; }
+  .app.ref-open .reference { position: sticky; top: 9px; }
+  .app.ref-open .ref-scroll { max-height: calc(100vh - 120px); }
+}
+.ref { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10px; table-layout: fixed; }
+.ref th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 3px 2px;
+  background: var(--alt);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+}
+.ref td { padding: 2px; text-align: right; white-space: nowrap; }
+.ref th:first-child, .ref td:first-child { text-align: left; font-weight: 700; padding-left: 5px; }
+.ref th:last-child, .ref td:last-child { padding-right: 5px; }
+/* Fixed widths so the DC column cannot get squeezed off the edge. */
+.ref col.c-cr  { width: 30px; }
+.ref col.c-xp  { width: 44px; }
+.ref col.c-pb  { width: 22px; }
+.ref col.c-ac  { width: 24px; }
+.ref col.c-hp  { width: 50px; }
+.ref col.c-atk { width: 26px; }
+.ref col.c-dmg { width: 46px; }
+.ref col.c-dc  { width: 24px; }
+.ref tbody tr:nth-child(even) { background: var(--alt); }
+.ref tbody tr.is-current { background: var(--highlight); color: var(--highlight-fg); }
+.ref tbody tr.is-current td { font-weight: 700; }
+
+/* ---------------- Popover ---------------- */
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  width: min(300px, calc(100vw - 20px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.42;
+}
+.popover[hidden] { display: none; }
+.pop-title { font-size: 14px; font-weight: 700; font-style: italic; }
+.pop-example { font-size: 10.5px; color: var(--muted); margin-bottom: 5px; }
+.pop-desc { margin: 0; }
+.pop-effect {
+  margin: 7px 0 0;
+  padding: 5px 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  font-size: 11.5px;
+}
+.pop-effect b {
+  display: block;
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--accent);
+  margin-bottom: 1px;
+}
+.pop-gate { margin: 6px 0 0; font-size: 11px; font-weight: 700; color: var(--result); }
+
+/* ---------------- Responsive ---------------- */
+
+@media (max-width: 700px) {
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  .traits { border-left: 0; border-top: 1px solid var(--line); }
+  .trait-list { max-height: 46vh; }
+}
+
+@media (max-width: 520px) {
+  /* The select already reads "CR 0-4", so the label can go before the
+     title is forced to wrap. */
+  .titlebar-right label { display: none; }
+}
+
+@media (max-width: 460px) {
+  .app { padding: 5px; gap: 6px; }
+  body { font-size: 12.5px; }
+  .titlebar h1 { font-size: 16px; }
+  .overall { flex-wrap: wrap; gap: 6px; }
+  .overall-meta { flex-basis: 100%; order: 5; }
+  .overall-cr { font-size: 21px; }
+  .cell { padding: 2px 5px; }
+  .cell label, .cell > span { font-size: 11px; }
+}
