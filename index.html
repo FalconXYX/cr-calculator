@@ -164,6 +164,28 @@
 
 <div class="popover" id="popover" role="tooltip" hidden></div>
 
+<!-- Cloudflare Web Analytics.
+     Cookieless and anonymous, so no consent banner is needed.
+
+     Get the token from the Cloudflare dashboard:
+       Analytics & Logs -> Web Analytics -> Add a site -> parthjain.ca
+     It is not a secret; it only says which site the beacon reports to,
+     which is why it is safe to commit and why it is visible in the page
+     source of every site using this.
+
+     Until a token is set this does nothing at all: no request, no errors. -->
+<script>
+  (function () {
+    var token = '';                       // <-- paste the Cloudflare token here
+    if (!token) return;
+    var beacon = document.createElement('script');
+    beacon.defer = true;
+    beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+    beacon.setAttribute('data-cf-beacon', JSON.stringify({ token: token }));
+    document.head.appendChild(beacon);
+  })();
+</script>
+
 <script src="js/data.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/app.js"></script>
