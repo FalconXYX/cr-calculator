@@ -41,6 +41,13 @@ jobs:
         with:
           path: dist
 
+      # Kept for the mirror job, which needs the same files on a second runner.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist
+          retention-days: 1
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -50,3 +57,45 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Publishes the same build to the copy of this site hosted on another
+  # account, so that URL never goes stale again.
+  #
+  # It needs a secret named MIRROR_TOKEN: a fine-grained personal access token
+  # created on the account that owns the mirror, scoped to that one repository,
+  # with Contents: read and write. Without the secret the job is skipped rather
+  # than failing the deploy.
+  #
+  # The build is path-independent (`base: './'` in vite.config.ts), so the same
+  # files work at /cr-calculator/ here and at /CRCALC/ there.
+  mirror:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: site
+
+      - name: Push the built site to the mirror
+        env:
+          TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          MIRROR: itmatteredagreatdeal-tech/CRCALC
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MIRROR_TOKEN is not set; skipping the mirror."
+            exit 0
+          fi
+          cd site
+          # Pages would otherwise run the output through Jekyll and drop
+          # anything in a directory beginning with an underscore.
+          touch .nojekyll
+          git init -q -b main
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site build from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
+          # Force: the mirror holds only generated output, so its history is
+          # disposable and this replaces it wholesale each time.
+          git push -f "https://x-access-token:${TOKEN}@github.com/${MIRROR}.git" main
