@@ -269,7 +269,84 @@ export function TierPicker({ rows, onCycle }: { rows: TierRow[]; onCycle: (id: s
   );
 }
 
+/* ---------------- Catalogue ---------------- */
+
+/** One thing that can be picked out of a catalogue. */
+export interface CatalogOption {
+  id: string;
+  name: string;
+  /** Shown in grey beside the name — the creature it came from, its rating. */
+  note?: string;
+  text: string;
+  kind?: ActionKind;
+}
+
+interface CatalogPickerProps {
+  placeholder: string;
+  /** Null while the catalogue is still on its way. */
+  search: ((query: string) => CatalogOption[]) | null;
+  onPick: (option: CatalogOption) => void;
+  /** Left out where the picker is the whole point of the section it is in. */
+  onClose?: () => void;
+  note?: string;
+}
+
+/**
+ * Search a catalogue and pick from it.
+ *
+ * A dropdown was fine for twenty hand-written presets. A catalogue of
+ * hundreds is past the point where scrolling a select is any use at all, so
+ * this is a box you type in and a list of what matched.
+ */
+export function CatalogPicker({ placeholder, search, onPick, onClose, note }: CatalogPickerProps) {
+  const [query, setQuery] = useState('');
+  const results = search ? search(query) : [];
+
+  return (
+    <div className="mm-catalog">
+      <div className="mm-catalog-top">
+        <input
+          type="search"
+          className="mm-text"
+          value={query}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          autoFocus
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {onClose && <button type="button" className="mini" onClick={onClose}>Close</button>}
+      </div>
+      {note && <p className="mm-note">{note}</p>}
+      {!search && <p className="mm-note">Fetching the catalogue…</p>}
+      {search && !results.length && (
+        <p className="mm-note">Nothing matches “{query}”.</p>
+      )}
+      <div className="mm-catalog-list">
+        {results.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            className="mm-catalog-row"
+            onClick={() => onPick(o)}
+          >
+            <span className="mm-catalog-name">{o.name}</span>
+            {o.note && <span className="mm-catalog-note">{o.note}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Entry list ---------------- */
+
+/** Where an entry list gets its browse button from. */
+export interface EntryCatalog {
+  buttonLabel: string;
+  placeholder: string;
+  note?: string;
+  search: (query: string) => CatalogOption[];
+}
 
 interface EntryListProps {
   entries: Entry[];
@@ -279,11 +356,16 @@ interface EntryListProps {
   textPlaceholder: string;
   /** Shows the action / bonus action / reaction selector on each entry. */
   kinded?: boolean;
+  /** Lets each entry be filled from a catalogue. */
+  catalog?: EntryCatalog;
 }
 
 export function EntryList({
-  entries, onChange, addLabel, namePlaceholder, textPlaceholder, kinded,
+  entries, onChange, addLabel, namePlaceholder, textPlaceholder, kinded, catalog,
 }: EntryListProps) {
+  /* Which entry has the catalogue open under it, by id. One at a time: two
+     open search boxes in a narrow column is a list you cannot read. */
+  const [browsing, setBrowsing] = useState<string | null>(null);
   const patch = (i: number, part: Partial<Entry>) => {
     onChange(entries.map((e, j) => (i === j ? { ...e, ...part } : e)));
   };
@@ -324,17 +406,31 @@ export function EntryList({
               onClick={() => onChange(entries.filter((_, j) => j !== i))}
             >×</button>
           </div>
-          {kinded && (
+          {(kinded || catalog) && (
             <div className="mm-entry-controls">
-              <select
-                value={kindOf(e)}
-                aria-label="Kind"
-                onChange={(ev) => patch(i, { kind: ev.target.value as ActionKind })}
-              >
-                {ACTION_KINDS.map((k) => (
-                  <option key={k} value={k}>{ACTION_KIND_LABEL[k]}</option>
-                ))}
-              </select>
+              {kinded && (
+                <select
+                  value={kindOf(e)}
+                  aria-label="Kind"
+                  onChange={(ev) => patch(i, { kind: ev.target.value as ActionKind })}
+                >
+                  {ACTION_KINDS.map((k) => (
+                    <option key={k} value={k}>{ACTION_KIND_LABEL[k]}</option>
+                  ))}
+                </select>
+              )}
+              {catalog && (
+                <button
+                  type="button"
+                  className="mini"
+                  aria-expanded={browsing === e.id}
+                  onClick={() => setBrowsing(browsing === e.id ? null : e.id)}
+                >
+                  {catalog.buttonLabel}
+                </button>
+              )}
+              {kinded && (
+              <>
               {/* Loads into THIS entry rather than making another one, so a
                   preset is a starting point for what you are writing. */}
               <select
@@ -355,7 +451,23 @@ export function EntryList({
                   </optgroup>
                 ))}
               </select>
+              </>
+              )}
             </div>
+          )}
+          {catalog && browsing === e.id && (
+            <CatalogPicker
+              placeholder={catalog.placeholder}
+              {...(catalog.note ? { note: catalog.note } : {})}
+              search={catalog.search}
+              onClose={() => setBrowsing(null)}
+              onPick={(o) => {
+                /* Into the entry being written, the same as the presets: a
+                   catalogue trait is a starting point, not a finished one. */
+                patch(i, { name: o.name, text: o.text, ...(o.kind ? { kind: o.kind } : {}) });
+                setBrowsing(null);
+              }}
+            />
           )}
           <textarea
             className="mm-textarea"

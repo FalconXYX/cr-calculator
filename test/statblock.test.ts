@@ -2,9 +2,16 @@
 
 import * as S from '../src/lib/statblock.ts';
 import { toMarkdown, toPlainText } from '../src/lib/statblockText.ts';
-import { parseDamage, parseSaveDC, parseToHit, vibeCheck } from '../src/lib/vibeCheck.ts';
+import { vibeCheck } from '../src/lib/vibeCheck.ts';
+import {
+  isLimitedUse, parseDamage, parseMultiattack, parseSaveDC, parseToHit, readDamage,
+} from '../src/lib/damageText.ts';
 import * as P from '../src/lib/actionPresets.ts';
 import { roll20Filename, toRoll20, toRoll20Json } from '../src/lib/roll20.ts';
+import {
+  imageFilename, layoutStatBlock, smallCapRuns, wrapSpans,
+} from '../src/lib/statblockImage.ts';
+import type { FontSpec, Measure } from '../src/lib/statblockImage.ts';
 import type { CalcState } from '../src/lib/types.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
 
@@ -452,7 +459,86 @@ is('to hit is read', parseToHit('+5 to hit, reach 5 ft.'), 5);
 is('highest to hit wins', parseToHit('+5 to hit. Also +11 to hit.'), 11);
 is('no to hit gives null', parseToHit('The creature hides.'), null);
 is('save DC is read', parseSaveDC('DC 15 Dexterity saving throw'), 15);
-is('highest DC wins', parseSaveDC('DC 12 ... DC 18 ...'), 18);
+is('the 2024 wording is read too',
+  parseSaveDC('Dexterity Saving Throw: DC 21, each creature in a Cone.'), 21);
+is('and a spellcasting preamble',
+  parseSaveDC('using Charisma as the spellcasting ability (spell save DC 20)'), 20);
+is('highest save DC wins',
+  parseSaveDC('Constitution Saving Throw: DC 12. Wisdom Saving Throw: DC 18.'), 18);
+
+/* A stat block is full of DCs that nobody rolls a saving throw against. An
+   ankheg's escape DC 13 beats its real save DC of 12, and reading it would
+   quietly score the ankheg as the harder monster. */
+is('an escape DC is not a save DC',
+  parseSaveDC('the target has the Grappled condition (escape DC 13).'), null);
+is('nor is a skill check DC',
+  parseSaveDC('a buried creature can make a DC 18 Strength (Athletics) check.'), null);
+is('and a real save still wins past one',
+  parseSaveDC('Constitution Saving Throw: DC 12, escape DC 14.'), 12);
+
+console.log('\n--- damage that replaces rather than adds ---');
+/* The bug this was written for: the Elemental Cataclysm rolls a d4 for one of
+   four effects, and adding all four gave 161 where the worst deals 45. */
+is('an "or" clause is a choice, not a total',
+  parseDamage('Hit: 11 (2d6 + 4) Piercing damage, or 18 (4d6 + 4) Piercing damage if it had Advantage.'), 18);
+is('a miss replaces the hit',
+  parseDamage('Hit: 10 (3d6) Fire damage. Miss: 5 (1d6) Fire damage.'), 10);
+is('but "Hit or Miss" is not a choice at all',
+  parseDamage('Hit: 22 (4d6 + 8) Slashing damage plus 36 (8d8) Radiant damage. Hit or Miss: it returns.'), 58);
+is('a second failure replaces the first',
+  parseDamage('First Failure: 10 (3d6) damage. Second Failure: 20 (6d6) damage.'), 20);
+is('a choice is over at the end of its sentence',
+  parseDamage('Hit: 14 (2d10 + 3) damage, or 8 (1d10 + 3) damage if Bloodied. Until the grapple ends, the target takes 7 (2d6) Necrotic damage.'), 21);
+
+const menu = [
+  'The creature creates one of the following effects at random (roll 1d4):',
+  '', '1: Flames. Failure: 45 (13d6) Fire damage.',
+  '', '2: Waves. Failure: 22 (5d8) Bludgeoning damage plus 22 (5d8) Cold damage.',
+  '', '3: Storm. Failure: 18 (4d8) Lightning damage plus 18 (4d8) Thunder damage.',
+  '', '4: Earth. Failure: 18 (4d8) Bludgeoning damage plus 18 (4d8) Acid damage.',
+].join('\n');
+is('four random effects are averaged, not summed', parseDamage(menu), 40);
+is('and the reading says how many there were', readDamage(menu).choices, 4);
+is('and that it was rolled for', readDamage(menu).random, true);
+
+/* Ten eye rays, four of which deal nothing. The die is what says there are
+   ten; counting only the six that hurt would rate the beholder as though it
+   never rolled a dud. */
+const rays = [
+  'The beholder randomly shoots one of the following rays (roll 1d10):',
+  '', '1: Charm Ray. Failure: 13 (3d8) Psychic damage.',
+  '', '2: Paralyzing Ray. Failure: the target is Paralyzed.',
+  '', '3: Death Ray. Failure: 55 (10d10) Necrotic damage.',
+].join('\n');
+is('a d10 menu divides by ten, not by the options with damage', parseDamage(rays), 7);
+
+is('a menu that is chosen takes the heaviest', parseDamage([
+  'The creature uses one of the following, of its choice:',
+  '', 'Burn. 30 (12d4) Fire damage.',
+  '', 'Freeze. 10 (4d4) Cold damage.',
+].join('\n')), 30);
+
+console.log('\n--- reading a Multiattack ---');
+is('a plain routine', JSON.stringify(parseMultiattack('The dragon makes three Rend attacks.')),
+  JSON.stringify({ branches: [[{ times: 3, names: ['Rend'] }]] }));
+is('two different attacks add up',
+  parseMultiattack('The balor makes one Flame Whip attack and one Lightning Blade attack.')!.branches[0]!.length, 2);
+is('"in any combination" is a choice within one clause',
+  JSON.stringify(parseMultiattack('The bandit makes three attacks, using Scimitar or Pistol in any combination.')!.branches[0]![0]!.names),
+  JSON.stringify(['Scimitar', 'Pistol']));
+is('an "or it makes" is a second routine, not more attacks',
+  parseMultiattack('The devil makes one Claws attack and one Tail attack, or it makes two Hurl Flame attacks.')!.branches.length, 2);
+is('a mixed routine keeps both halves',
+  parseMultiattack('The tarrasque makes one Bite attack and three other attacks, using Claw or Tail in any combination.')!.branches[0]!.length, 2);
+is('something used alongside the attacks comes too',
+  parseMultiattack('The banshee makes two Corrupting Touch attacks and uses Horrify.')!.branches[0]!.length, 2);
+is('a repeated action is read', parseMultiattack('The beholder uses Eye Rays three times.')!.branches[0]![0]!.times, 3);
+is('and what cannot be read comes back empty-handed',
+  parseMultiattack('The hydra makes as many Bite attacks as it has heads.'), null);
+
+is('a recharge marks a limited use', isLimitedUse('Fire Breath (Recharge 5\u20136)'), true);
+is('so does a daily', isLimitedUse('Wish (1/Day)'), true);
+is('a plain attack is not limited', isLimitedUse('Greatsword'), false);
 
 console.log('\n--- vibe check: filling the calculator ---');
 const blank: CalcState = {
@@ -500,8 +586,10 @@ is('stale traits are cleared', 'staleTrait' in v.next.traits, false);
 is('breath weapon is scored as a trait', v.next.traits['breathWeapon'], true);
 is('and carries its damage', v.next.traitValues['breathWeapon'], 45);
 is('so the round holds only the greatsword', v.next.primary[0], 13);
-is('legendary damage goes to the off-turn field, and so does a reaction',
-  v.next.extraDamage, 11);
+/* Three legendary actions a round and one option to spend them on, so it
+   spends them on that. The reaction is one more, off-turn. */
+is('legendary actions are spent, and a reaction added',
+  v.next.extraDamage, 3 * 7 + 4);
 is('rounds collapse to one', v.next.roundCount, 1);
 is('secondary damage is cleared', v.next.secondary[0], 0);
 is('the target CR range is left alone', v.next.tierId, '0-4');
@@ -553,9 +641,48 @@ multiAtk.entries.action = [
   { id: 'c', name: 'Claw', text: 'Melee Weapon Attack: +4 to hit. Hit: 6 (1d8 + 2) slashing damage.' },
 ];
 const vm = vibeCheck(multiAtk, blank);
-is('multiattack is flagged, not guessed',
-  vm.report.skipped.some((x) => x.toLowerCase().includes('multiattack')), true);
-is('only the written damage is counted', vm.next.primary[0], 6);
+is('the routine is two claws, not one', vm.next.primary[0], 12);
+is('and the report says why',
+  vm.report.judged.some((x) => x.includes('2 \u00d7 Claw')), true);
+
+/* A hydra makes as many bites as it has heads, which is not a number. */
+const unreadable = S.defaultStatBlock();
+unreadable.entries.action = [
+  { id: 'm', name: 'Multiattack', text: 'The hydra makes as many Bite attacks as it has heads.' },
+  { id: 'b', name: 'Bite', text: 'Melee Attack Roll: +7. Hit: 10 (1d10 + 5) Piercing damage.' },
+];
+const vu = vibeCheck(unreadable, blank);
+is('an unreadable multiattack is reported rather than guessed at',
+  vu.report.skipped.some((x) => x.toLowerCase().includes('multiattack')), true);
+is('and the one attack stands in for the round', vu.next.primary[0], 10);
+
+console.log('\n--- vibe check: one action a turn ---');
+/* A bandit has a scimitar and a crossbow and uses one of them, so adding
+   both would score it as though it did both at once. */
+const chooser = S.defaultStatBlock();
+chooser.entries.action = [
+  { id: 's', name: 'Scimitar', text: 'Melee Attack Roll: +3. Hit: 4 (1d6 + 1) Slashing damage.' },
+  { id: 'c', name: 'Light Crossbow', text: 'Ranged Attack Roll: +3. Hit: 5 (1d8 + 1) Piercing damage.' },
+];
+const vc = vibeCheck(chooser, blank);
+is('the heavier of the two is the round', vc.next.primary[0], 5);
+is('and it is one round, not three', vc.next.roundCount, 1);
+
+console.log('\n--- vibe check: a recharge is not every round ---');
+const breather = S.defaultStatBlock();
+breather.entries.action = [
+  { id: 'm', name: 'Multiattack', text: 'The drake makes two Rend attacks.' },
+  { id: 'r', name: 'Rend', text: 'Melee Attack Roll: +7. Hit: 10 (2d6 + 3) Slashing damage.' },
+  { id: 'f', name: 'Fire Breath (Recharge 5\u20136)', text: 'Dexterity Saving Throw: DC 14. Failure: 35 (10d6) Fire damage.' },
+];
+const vb = vibeCheck(breather, blank);
+is('the breath takes the first round', vb.next.primary[0], 35);
+is('and the routine takes the rest', vb.next.primary[1], 20);
+is('over three rounds', vb.next.roundCount, 3);
+is('which the report explains',
+  vb.report.judged.some((x) => x.includes('round 1')), true);
+is('and what the three rounds average to',
+  vb.report.judged.some((x) => x.includes('Averaged across the three')), true);
 
 const flyer = S.defaultStatBlock();
 flyer.speeds = { walk: 0, burrow: 0, climb: 0, fly: 60, swim: 0, hover: false };
@@ -563,7 +690,7 @@ flyer.entries.action = [{ id: 'f', name: 'Talons', text: 'Melee Weapon Attack: +
 is('flying without reach does not earn the bonus',
   'flyAndRanged' in vibeCheck(flyer, blank).next.traits, false);
 is('and it says why',
-  vibeCheck(flyer, blank).report.skipped.some((x) => x.includes('fly speed')), true);
+  vibeCheck(flyer, blank).report.judged.some((x) => x.includes('has to land')), true);
 
 flyer.entries.action.push({ id: 'b', name: 'Rock', text: 'Ranged Weapon Attack: +4 to hit, range 30/120 ft. Hit: 5 (1d6 + 2) bludgeoning damage.' });
 is('flying with a ranged attack does', vibeCheck(flyer, blank).next.traits['flyAndRanged'], true);
@@ -576,6 +703,109 @@ is('a silent block falls back to Strength plus proficiency', vq.next.attackBonus
 is('and to 8 + proficiency + the best mental score', vq.next.saveDC, 12);
 is('and admits it found no damage',
   vq.report.skipped.some((x) => x.includes('No damage')), true);
+
+console.log('\n--- drawing the block ---');
+
+/* Ten pixels a character, so what wraps where is arithmetic rather than a
+   question about which font the machine running the tests happens to have. */
+const ruler: Measure = (text) => text.length * 10;
+const body: FontSpec = { size: 16, weight: 400 };
+const label: FontSpec = { size: 16, weight: 700 };
+
+const oneLine = wrapSpans([{ text: 'a b c', font: body }], 200, ruler);
+is('what fits stays on one line', oneLine.length, 1);
+
+const broken = wrapSpans([{ text: 'aaa bbb ccc ddd', font: body }], 80, ruler);
+is('and what does not is broken up', broken.length, 2);
+is('the break eats the space that caused it',
+  broken.map((l) => l.map((s) => s.text).join('')).join('|'), 'aaa bbb|ccc ddd');
+
+const mixed = wrapSpans([
+  { text: 'Armor Class ', font: label, accent: true },
+  { text: 'nineteen and a bit more words here', font: body },
+], 300, ruler);
+is('a line takes as much as it can hold', mixed.length, 2);
+is('the label keeps its weight', mixed[0]![0]!.font.weight, 700);
+is('and the value beside it keeps its own', mixed[0]!.at(-1)!.font.weight, 400);
+is('what carried over keeps the font it arrived with',
+  mixed[1]!.every((s) => s.font.weight === 400), true);
+is('every line carries at least one span', mixed.every((l) => l.length > 0), true);
+
+console.log('\n--- small capitals ---');
+const caps = smallCapRuns('Adult Red Dragon', { size: 30, weight: 700, smallCaps: true });
+is('capitals keep their size', caps[0]!.font.size, 30);
+is('lower case is set smaller', caps[1]!.font.size < 30, true);
+is('and in capitals', caps[1]!.text, caps[1]!.text.toUpperCase());
+is('the words come back whole',
+  caps.map((c) => c.text).join(''), 'ADULT RED DRAGON');
+is('a plain font is left alone',
+  smallCapRuns('Rend', body).map((c) => c.text).join(''), 'Rend');
+
+console.log('\n--- one column and two ---');
+const drawn = S.defaultStatBlock();
+drawn.name = 'Test Drake';
+drawn.entries.action = Array.from({ length: 12 }, (_, i) => ({
+  id: `a${i}`,
+  name: `Attack ${i}`,
+  text: 'Melee Attack Roll: +7, reach 5 ft. Hit: 10 (2d6 + 3) Slashing damage and a good deal more text besides.',
+}));
+const dd = S.derive(drawn, CR1);
+
+const single = layoutStatBlock(drawn, dd, { columns: 1 }, ruler);
+is('one column holds everything', single.columns.length, 1);
+
+const double = layoutStatBlock(drawn, dd, { columns: 2 }, ruler);
+is('two columns are two columns', double.columns.length, 2);
+is('and both of them are used', double.columns.every((c) => c.blocks.length > 0), true);
+is('the name starts in the first', double.columns[0]!.blocks[0]!.placed.block.kind, 'spans');
+is('no block is in two places at once',
+  double.columns.flatMap((c) => c.blocks).length,
+  single.columns[0]!.blocks.length);
+
+const heights = double.columns.map((c) =>
+  c.blocks.reduce((a, b) => a + b.placed.height, 0));
+is('neither column runs away with it',
+  Math.max(...heights) / (heights[0]! + heights[1]!) < 0.62, true);
+is('two columns are wider than one', double.width > single.width, true);
+is('and shorter', double.height < single.height, true);
+
+/* The split may only fall at the actions or later. A printed block never
+   starts its second column part way through the ability scores. */
+const traitHeavy = S.defaultStatBlock();
+traitHeavy.name = 'Trait Heavy';
+traitHeavy.entries.trait = Array.from({ length: 10 }, (_, i) => ({
+  id: `t${i}`,
+  name: `Trait ${i}`,
+  text: 'A long enough sentence about what this does that it takes a line or two to say it properly.',
+}));
+traitHeavy.entries.action = [
+  { id: 'a', name: 'Bite', text: 'Melee Attack Roll: +5. Hit: 7 (1d8 + 3) Piercing damage.' },
+];
+const th = S.derive(traitHeavy, CR1);
+
+/** The words a block puts on its first line, for finding one by name. */
+const opener = (b: { placed: { lines: { text: string }[][] } }): string =>
+  (b.placed.lines[0] ?? []).map((x) => x.text).join('');
+
+const flat = layoutStatBlock(traitHeavy, th, { columns: 1 }, ruler).columns[0]!.blocks;
+const actionsAt = flat.findIndex((b) => opener(b) === 'Actions');
+is('the fixture does have an Actions heading', actionsAt > 0, true);
+
+const heavy = layoutStatBlock(traitHeavy, th, { columns: 2 }, ruler);
+is('the first column holds everything up to the actions',
+  heavy.columns[0]!.blocks.length >= actionsAt, true);
+is('so the last trait is not in the second',
+  heavy.columns[1]!.blocks.some((b) => opener(b).startsWith('Trait 9.')), false);
+is('and the second column is used all the same',
+  heavy.columns[1]!.blocks.length > 0, true);
+
+/* Even when that leaves the columns lopsided, which it must be allowed to. */
+const sides = heavy.columns.map((c) => c.blocks.reduce((a, b) => a + b.placed.height, 0));
+is('lopsided is allowed, so long as the rule holds', sides[0]! > sides[1]!, true);
+
+is('the file says which it is', imageFilename(drawn, 2), 'test-drake-2col.png');
+is('and a nameless one still gets a name',
+  imageFilename({ ...drawn, name: '' }, 1), 'monster-1col.png');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

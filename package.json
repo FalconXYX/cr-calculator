@@ -8,8 +8,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false",
-    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts"
+    "typecheck": "tsc -b",
+    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts && node --experimental-strip-types test/catalog.test.ts",
+    "bestiary": "node tools/build-bestiary.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

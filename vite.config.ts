@@ -11,5 +11,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    /* The Monster Manual catalogue is a chunk of its own on purpose, and it
+       is a little over 600 kB of stat blocks. Nothing fetches it until
+       someone opens the picker, so the default 500 kB warning only fires on
+       the one chunk that is meant to be big. Set just above it, so a
+       catalogue that grows a great deal still says so. */
+    chunkSizeWarningLimit: 700,
   },
 });

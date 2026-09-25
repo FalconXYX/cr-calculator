@@ -7,7 +7,7 @@ import {
   languagesText, legendaryIntro, metaText, sensesText, speedText,
 } from './statblock.ts';
 import type { Ability, Derived, StatBlock } from './statblock.ts';
-import { parseSaveDC, parseToHit } from './vibeCheck.ts';
+import { parseSaveDC, parseToHit } from './damageText.ts';
 
 /* Roll20's own id scheme: a time-ordered prefix plus a random tail, over a
    64-character alphabet. Sequential calls in the same millisecond carry a

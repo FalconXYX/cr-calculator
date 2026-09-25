@@ -1,9 +1,30 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { NumberField } from './Fields.tsx';
 import { InfoButton } from './Popover.tsx';
 import type { PopoverContent } from './Popover.tsx';
 import { TRAITS, STAT_TRAITS, NO_EFFECT_TRAITS, SPELLCASTING_NOTE } from '../lib/traits.ts';
+import { MONSTER_TRAITS } from '../data/monsterTraits.ts';
+import { plainName } from '../lib/catalog.ts';
 import type { Tier, Trait } from '../lib/types.ts';
+
+/* Every name the panel already carries, so the catalogue below can leave them
+   out. The same trait twice — once with what it does to the rating and once
+   without — would make the panel's answers look like a coin flip. */
+const ALREADY_LISTED = new Set([
+  ...TRAITS.map((t) => t.name),
+  ...STAT_TRAITS.map((t) => t.name),
+  ...NO_EFFECT_TRAITS.map((t) => t.name),
+  'Spellcasting', 'Innate Spellcasting',
+].map((name) => plainName(name).toLowerCase()));
+
+/**
+ * Every other named trait in circulation, for looking one up.
+ *
+ * The answer to "what about X?" should be visible rather than missing, even
+ * where X is a feature the DMG puts no number on.
+ */
+const MANUAL_TRAITS = MONSTER_TRAITS
+  .filter((t) => !ALREADY_LISTED.has(plainName(t.name).toLowerCase()));
 
 interface Props {
   traits: Record<string, boolean>;
@@ -67,6 +88,7 @@ export function TraitsPanel({
   onSearch, onToggleTrait, onSetValue, onToggleNoEffect,
 }: Props) {
   const q = search.trim().toLowerCase();
+  const [showManual, setShowManual] = useState(false);
 
   const matches = useMemo(() => {
     const hit = (t: { name: string; example?: string; desc: string; effect?: string }) =>
@@ -75,15 +97,18 @@ export function TraitsPanel({
       stats: STAT_TRAITS.filter(hit),
       scoring: [...TRAITS].filter(hit).sort((a, b) => a.name.localeCompare(b.name)),
       none: NO_EFFECT_TRAITS.filter(hit),
+      manual: MANUAL_TRAITS.filter((t) => hit({ name: t.name, example: t.example, desc: t.text })),
     };
   }, [q]);
 
   const count = Object.values(traits).filter(Boolean).length;
-  /* A search that matches the hidden group opens it, so hits are never
+  /* A search that matches a hidden group opens it, so hits are never
      silently withheld. */
   const noEffectOpen = showNoEffect || q.length > 0;
+  const manualOpen = showManual || q.length > 0;
   const nothingFound =
-    !matches.stats.length && !matches.scoring.length && !matches.none.length;
+    !matches.stats.length && !matches.scoring.length
+    && !matches.none.length && !matches.manual.length;
 
   const renderTrait = (trait: Trait) => (
     <TraitRow
@@ -156,6 +181,36 @@ export function TraitsPanel({
                       ...(t.example ? { example: t.example } : {}),
                       desc: t.desc,
                       effect: 'None. This trait does not change the challenge rating.',
+                    }}
+                    label={`What ${t.name} does`}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {matches.manual.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="grouphead grouptoggle"
+              aria-expanded={manualOpen}
+              aria-controls="manualGroup"
+              onClick={() => setShowManual((v) => !v)}
+            >
+              {manualOpen ? '▾ ' : '▸ '}Other traits ({matches.manual.length})
+            </button>
+            <div className="noeffect-group" id="manualGroup" hidden={!manualOpen}>
+              {matches.manual.map((t) => (
+                <div className="trait readonly" key={t.id}>
+                  <span className="trait-name">{t.name}</span>
+                  <InfoButton
+                    content={{
+                      title: t.name,
+                      example: t.example,
+                      desc: t.text,
+                      effect: 'Not one of the features the DMG puts a number on. Score it by hand — if it adds damage, add the damage; if it keeps the creature alive longer, raise the hit points.',
                     }}
                     label={`What ${t.name} does`}
                   />

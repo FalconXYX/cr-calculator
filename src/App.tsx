@@ -8,6 +8,7 @@ import { BaselineStrip } from './components/BaselineStrip.tsx';
 import { vibeCheck } from './lib/vibeCheck.ts';
 import type { VibeReport } from './lib/vibeCheck.ts';
 import { StatsPanel } from './components/StatsPanel.tsx';
+import { VibeReportPanel } from './components/VibeReport.tsx';
 import { TraitsPanel } from './components/TraitsPanel.tsx';
 import { MonsterMaker } from './components/MonsterMaker.tsx';
 import { MonsterMakerBody } from './components/monster/MonsterMakerBody.tsx';
@@ -217,8 +218,6 @@ export default function App() {
               onSetDamage={setDamage}
               onAddRound={addRound}
               onRemoveRound={removeRound}
-              vibeReport={vibeReport}
-              onDismissVibe={() => setVibeReport(null)}
             />
             <TraitsPanel
               traits={state.traits}
@@ -235,6 +234,10 @@ export default function App() {
 
           <OverallBar result={result} />
         </div>
+
+        {vibeReport && (
+          <VibeReportPanel report={vibeReport} onDismiss={() => setVibeReport(null)} />
+        )}
 
         <MonsterMaker
           open={monsterOpen}

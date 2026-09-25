@@ -7,11 +7,16 @@ import {
 } from './statblock.ts';
 import type { Derived, StatBlock } from './statblock.ts';
 
-interface Line { key: string; value: string; }
+export interface StatLine { key: string; value: string; }
 
-/** The lines shared by both formats, so the two can never drift apart. */
-function lines(sb: StatBlock, d: Derived): { top: Line[]; mid: Line[] } {
-  const opt = (key: string, value: string): Line[] => (value ? [{ key, value }] : []);
+/**
+ * The labelled lines of a block, in the order they are printed.
+ *
+ * Shared by every way the block leaves the app — Markdown, plain text and the
+ * picture — so that none of them can quietly drift from the others.
+ */
+export function statLines(sb: StatBlock, d: Derived): { top: StatLine[]; mid: StatLine[] } {
+  const opt = (key: string, value: string): StatLine[] => (value ? [{ key, value }] : []);
   return {
     top: [
       { key: 'Armor Class', value: `${d.ac}${sb.acNote ? ` (${sb.acNote})` : ''}` },
@@ -36,7 +41,7 @@ function lines(sb: StatBlock, d: Derived): { top: Line[]; mid: Line[] } {
 
 /** Homebrewery and GM Binder both read this dialect. */
 export function toMarkdown(sb: StatBlock, d: Derived): string {
-  const { top, mid } = lines(sb, d);
+  const { top, mid } = statLines(sb, d);
   const out: string[] = [
     `> ## ${sb.name || 'Unnamed'}`,
     `> *${metaText(sb)}*`,
@@ -79,7 +84,7 @@ export function toMarkdown(sb: StatBlock, d: Derived): string {
 }
 
 export function toPlainText(sb: StatBlock, d: Derived): string {
-  const { top, mid } = lines(sb, d);
+  const { top, mid } = statLines(sb, d);
   const out: string[] = [
     sb.name || 'Unnamed',
     metaText(sb),

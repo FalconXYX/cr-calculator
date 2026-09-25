@@ -261,6 +261,20 @@ export function defaultStatBlock(): StatBlock {
   };
 }
 
+/**
+ * A stat block as it is stored rather than as it is used.
+ *
+ * Anything may be missing, at any depth, because reviveStatBlock merges what
+ * it is given onto a fresh block. That is what lets a saved block predate a
+ * field, and what lets the Monster Manual catalogue leave out every value
+ * that matches the default — which is a third of the download.
+ */
+export type SavedStatBlock = {
+  [K in keyof StatBlock]?: StatBlock[K] extends readonly unknown[] ? StatBlock[K]
+    : StatBlock[K] extends object ? Partial<StatBlock[K]>
+      : StatBlock[K];
+};
+
 /** Older spellings that should fold onto a current entry. */
 const ALIASES: Record<string, string> = { neutral: 'True Neutral' };
 

@@ -5,47 +5,10 @@ import { TRAITS } from './traits.ts';
 import { ENTRY_SECTIONS, abilityMod, kindOf } from './statblock.ts';
 import type { Entry, EntrySection, StatBlock } from './statblock.ts';
 import type { CalcState, Trait } from './types.ts';
-
-/** Average damage stated as "10 (2d6 + 3)", or worked out when only dice are given. */
-const DICE = /(?:(\d+)\s*)?\(\s*(\d+)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?\s*\)/g;
-
-export function parseDamage(text: string): number {
-  let total = 0;
-  for (const m of text.matchAll(DICE)) {
-    if (m[1] !== undefined) { total += parseInt(m[1], 10); continue; }
-    const count = parseInt(m[2]!, 10);
-    const size = parseInt(m[3]!, 10);
-    const mod = m[5] ? parseInt(m[5], 10) * (m[4] === '-' ? -1 : 1) : 0;
-    total += Math.max(0, Math.floor((count * (size + 1)) / 2) + mod);
-  }
-  return total;
-}
-
-const highest = (text: string, re: RegExp): number | null => {
-  let best: number | null = null;
-  for (const m of text.matchAll(re)) {
-    const n = parseInt(m[1]!, 10);
-    if (Number.isFinite(n) && (best === null || n > best)) best = n;
-  }
-  return best;
-};
-
-/* Both wordings are in circulation: "+7 to hit" in the 2014 books, and
-   "Melee Attack Roll: +10" in the 2024 ones. Read either. */
-const TO_HIT_PATTERNS: readonly RegExp[] = [
-  /([+-]?\d+)\s*to hit/gi,
-  /attack roll:\s*([+-]?\d+)/gi,
-];
-
-export function parseToHit(text: string): number | null {
-  let best: number | null = null;
-  for (const re of TO_HIT_PATTERNS) {
-    const n = highest(text, re);
-    if (n !== null && (best === null || n > best)) best = n;
-  }
-  return best;
-}
-export const parseSaveDC = (t: string): number | null => highest(t, /\bDC\s*(\d+)/gi);
+import {
+  isLimitedUse, parseDamage, parseMultiattack, parseSaveDC, parseToHit, readDamage,
+} from './damageText.ts';
+import type { Routine } from './damageText.ts';
 
 /* Names are matched loosely: "Breath Weapon (Recharge 5-6)" is Breath Weapon. */
 const norm = (s: string): string =>
@@ -73,8 +36,108 @@ function valueFor(trait: Trait, entry: Entry, sb: StatBlock): number | null {
   return null;
 }
 
+/* ---------------- Picking the routine out of an action list ---------------- */
+
+/** One entry and what it deals. `times` is set where it is used repeatedly. */
+interface Option { entry: Entry; damage: number; times?: number; }
+
+/** What one use of an entry is worth, however the entry states it. */
+type DamageOf = (entry: Entry) => number;
+
+/**
+ * The heaviest thing in a list, because a list of actions is a menu.
+ *
+ * A bandit has a scimitar and a light crossbow and uses one of them on its
+ * turn. Adding both scores it as though it did both at once, which is the
+ * same mistake as adding up the four effects of a Cataclysmic Event.
+ */
+function heaviest(list: readonly Entry[], damageOf: DamageOf): Option | null {
+  let found: Option | null = null;
+  for (const entry of list) {
+    const damage = damageOf(entry);
+    if (damage > 0 && (!found || damage > found.damage)) found = { entry, damage };
+  }
+  return found;
+}
+
+/** "3 × Rend 18", or just "Rend 18" where it is used once. */
+function describe(option: Option): string {
+  const name = option.entry.name || 'Unnamed';
+  const times = option.times ?? 1;
+  return times > 1
+    ? `${times} \u00d7 ${name} ${Math.round(option.damage / times)}`
+    : `${name} ${option.damage}`;
+}
+
+/**
+ * Why an entry with several outcomes is worth what it is worth.
+ *
+ * Nothing at all when the entry states one number. Otherwise it says which
+ * reading was taken and what the alternative would have come to, because the
+ * alternative is what the calculator used to do.
+ */
+function explainChoice(entry: Entry, damage: number): string | null {
+  const { choices, random } = readDamage(entry.text);
+  if (choices < 2) return null;
+  const name = entry.name || 'An action';
+  return random
+    ? `${name} rolls for one of ${choices} outcomes, so its ${damage} is the average across them rather than all ${choices} added together.`
+    : `${name} offers ${choices} outcomes and the creature picks, so its ${damage} is the heaviest of them rather than all ${choices} added together.`;
+}
+
+/**
+ * What a round of legendary actions comes to.
+ *
+ * The list is a menu and the creature picks from it as many times as it is
+ * allowed. An option that says it cannot be taken again this turn is worth
+ * one use; anything unrestricted can simply be taken again.
+ */
+function legendaryRound(
+  sb: StatBlock, claimed: Set<Entry>, damageOf: DamageOf,
+): { total: number; label: string } | null {
+  const options = sb.entries.legendary
+    .filter((e) => !claimed.has(e))
+    .map((e) => {
+      const costs = /\(\s*costs\s+(\d+)\s+actions?\s*\)/i.exec(`${e.name} ${e.text}`);
+      return {
+        entry: e,
+        damage: damageOf(e),
+        cost: costs ? Math.max(1, parseInt(costs[1]!, 10)) : 1,
+        oncePerRound: /can['\u2019]t take this action again/i.test(e.text),
+      };
+    })
+    .filter((o) => o.damage > 0)
+    /* Best value for what it costs, since that is what gets spammed. */
+    .sort((a, b) => b.damage / b.cost - a.damage / a.cost);
+  if (!options.length) return null;
+
+  let left = Math.max(1, sb.legendaryCount);
+  let total = 0;
+  const taken: string[] = [];
+  for (const option of options) {
+    if (left < option.cost) continue;
+    const uses = option.oncePerRound ? 1 : Math.floor(left / option.cost);
+    total += option.damage * uses;
+    taken.push(uses > 1 ? `${uses} \u00d7 ${option.entry.name}` : option.entry.name);
+    left -= uses * option.cost;
+  }
+  return { total, label: taken.join(', ') };
+}
+
 export interface VibeReport {
+  /** Read straight off the block, with nothing decided along the way. */
   took: string[];
+  /**
+   * Where the block said one thing and the calculator wanted another.
+   *
+   * This is the half worth reading. A stat block describes what a creature
+   * can do; the calculator wants a number for what it does in a round, and
+   * getting from one to the other means choosing — which of four random
+   * effects, how many attacks a Multiattack is, whether a breath weapon
+   * happens every round. Each of those choices is written out here.
+   */
+  judged: string[];
+  /** What is left for a person to decide. */
   skipped: string[];
 }
 
@@ -93,6 +156,7 @@ export interface VibeResult {
 export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
   const pb = sb.proficiencyBonus;
   const took: string[] = [];
+  const judged: string[] = [];
   const skipped: string[] = [];
 
   const all: { section: EntrySection; entry: Entry }[] = [];
@@ -134,12 +198,17 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     traitValues['saveProficiencies'] = sb.saves.length;
     took.push(`${sb.saves.length} save proficienc${sb.saves.length === 1 ? 'y' : 'ies'}`);
   }
-  const hasRanged = /ranged\s+(?:weapon|spell)?\s*attack/i.test(allText);
+  /* A dragon that breathes fire in a cone can fight from the air as surely as
+     one with a bow, so the bonus is not about weapons — it is about whether
+     the creature has to land to hurt anybody. */
+  const hasRanged = /ranged\s+(?:weapon|spell)?\s*attack/i.test(allText)
+    || /\brange\s+\d+/i.test(allText)
+    || /\d+-foot\s+(?:Cone|Line)\b/i.test(allText);
   if (sb.speeds.fly > 0 && hasRanged) {
     traits['flyAndRanged'] = true;
     took.push('Fly speed with a ranged attack');
   } else if (sb.speeds.fly > 0) {
-    skipped.push('Has a fly speed but no ranged attack, so the flying bonus does not apply');
+    judged.push('It flies, but nothing it does reaches past its own arms, so it has to land to fight and the flying bonus does not apply.');
   }
 
   /* ---- Numbers ---- */
@@ -160,28 +229,170 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     ? `Save DC ${statedDC}, from the text`
     : `Save DC ${saveDC}, worked out from the ability scores`);
 
-  /* Actions are the attack routine; everything off-turn goes to the off-turn
-     field, which is what the calculator means by it. */
-  let onTurn = 0;
-  let offTurn = 0;
-  const seen: string[] = [];
-  for (const { section, entry } of all) {
-    if (claimed.has(entry)) continue;
-    const dmg = parseDamage(entry.text);
-    if (!dmg) continue;
-    seen.push(`${entry.name || 'Unnamed'} ${dmg}`);
-    if (section === 'trait') continue;
-    /* A reaction fires on somebody else's turn, so it belongs with the
-       legendary and lair damage rather than in the attack routine. */
-    const offTurnAction = section === 'action' && kindOf(entry) === 'reaction';
-    if (section === 'action' && !offTurnAction) onTurn += dmg;
-    else offTurn += dmg;
-  }
-  if (seen.length) took.push(`Damage: ${seen.join(', ')}`);
-  else skipped.push('No damage found in any action — set damage per round yourself');
+  /* ---- The attack routine ----
 
-  if (all.some((x) => /^multiattack$/i.test(x.entry.name.trim()))) {
-    skipped.push('Multiattack: its repeats are not counted, so raise the damage yourself');
+     A creature takes one action on its turn. Reading every action it has and
+     adding them together scores a bandit as though it swung its scimitar and
+     fired its crossbow at once, so what goes in is the routine it actually
+     runs: whatever Multiattack says, or failing that the heaviest single
+     thing it can do. */
+
+  /* An entry with no dice of its own can still deal damage by naming an
+     attack — "Pounce. The dragon moves up to half its Speed, and it makes one
+     Rend attack." Look the attack up rather than scoring the pounce at zero,
+     which is how a dragon's legendary actions used to come to nothing. */
+  const byName = new Map<string, Entry>();
+  for (const { entry } of all) byName.set(norm(entry.name), entry);
+
+  /**
+   * Work a routine out against the actions it names.
+   *
+   * Each branch is a whole round's worth, so its clauses add; the branches
+   * are alternatives, so the heaviest of them is what the creature does.
+   * Returns nothing when no branch names an action that can be found, which
+   * is the signal to say so rather than to guess.
+   */
+  const runRoutine = (plan: Routine, open: Set<Entry>): Option[] | null => {
+    let best: Option[] | null = null;
+    let bestDamage = 0;
+    for (const branch of plan.branches) {
+      const picks: Option[] = [];
+      let damage = 0;
+      for (const part of branch) {
+        const named = part.names
+          .map((name) => byName.get(norm(name)))
+          .filter((e): e is Entry => Boolean(e) && !open.has(e as Entry));
+        const pick = heaviest(named, (e) => damageAt(e, open));
+        if (!pick) continue;
+        damage += part.times * pick.damage;
+        picks.push({ entry: pick.entry, damage: part.times * pick.damage, times: part.times });
+      }
+      if (damage > 0 && damage > bestDamage) { bestDamage = damage; best = picks; }
+    }
+    return best;
+  };
+
+  /* `open` is what is already being worked out, so two actions that name each
+     other stop instead of chasing one another for ever. */
+  const damageAt = (entry: Entry, open: Set<Entry>): number => {
+    const own = parseDamage(entry.text);
+    if (own > 0) return own;
+    const plan = parseMultiattack(entry.text);
+    if (!plan || open.has(entry)) return 0;
+    const picks = runRoutine(plan, new Set([...open, entry]));
+    return picks ? picks.reduce((a, b) => a + b.damage, 0) : 0;
+  };
+
+  const damageOf: DamageOf = (entry) => damageAt(entry, new Set());
+
+  const actions = sb.entries.action.filter((e) => !claimed.has(e));
+  const multiattack = actions.find((e) => /^multiattack\b/i.test(e.name.trim()));
+  const onTurn = actions.filter((e) => e !== multiattack && kindOf(e) === 'action');
+  const bursts = onTurn.filter((e) => isLimitedUse(e.name));
+  const routineActions = onTurn.filter((e) => !isLimitedUse(e.name));
+
+  /* Everything with more than one outcome, said once and said plainly. */
+  const noteChoice = (option: Option | null): void => {
+    if (!option) return;
+    const each = Math.round(option.damage / (option.times ?? 1));
+    const why = explainChoice(option.entry, each);
+    if (why) judged.push(why);
+  };
+
+  let routine = 0;
+  if (multiattack) {
+    const plan = parseMultiattack(multiattack.text);
+    const picks = plan && runRoutine(plan, new Set([multiattack]));
+    if (picks && picks.length) {
+      routine = picks.reduce((a, b) => a + b.damage, 0);
+      judged.push(`Multiattack reads as ${picks.map(describe).join(' + ')}, so a round of attacking is ${routine}.`);
+      picks.forEach(noteChoice);
+    } else {
+      skipped.push(`Multiattack says \u201c${multiattack.text.trim().slice(0, 80)}\u201d, which is not a number this can read. Set the damage per round yourself.`);
+    }
+  }
+  if (!routine) {
+    const pick = heaviest(routineActions, damageOf);
+    if (pick) {
+      routine = pick.damage;
+      judged.push(routineActions.length > 1
+        ? `No Multiattack, so it takes one action a turn. The round is its heaviest, ${describe(pick)} \u2014 the other ${routineActions.length - 1} ${routineActions.length === 2 ? 'is what it does' : 'are what it does'} instead, not as well.`
+        : `One action and one action a turn, so the round is ${describe(pick)}.`);
+      noteChoice(pick);
+    }
+  }
+
+  /* A bonus action is on top of the action, not instead of it. */
+  const bonus = heaviest(actions.filter((e) => kindOf(e) === 'bonus'), damageOf);
+  if (bonus) {
+    routine += bonus.damage;
+    judged.push(`${describe(bonus)} is a bonus action, which costs nothing the action would have used, so it adds to the round.`);
+    noteChoice(bonus);
+  }
+
+  /* ---- Off-turn: reactions, legendary and lair actions ---- */
+
+  let offTurn = 0;
+  const reactions = actions.filter((e) => kindOf(e) === 'reaction');
+  const reaction = heaviest(reactions, damageOf);
+  if (reaction) {
+    offTurn += reaction.damage;
+    judged.push(reactions.length > 1
+      ? `It has ${reactions.length} reactions but one reaction a round, so only the heaviest counts: ${describe(reaction)}, off its own turn.`
+      : `${describe(reaction)} is a reaction, so it lands on somebody else's turn rather than in the routine.`);
+    noteChoice(reaction);
+  }
+  const legendary = legendaryRound(sb, claimed, damageOf);
+  if (legendary) {
+    offTurn += legendary.total;
+    judged.push(`${sb.legendaryCount} legendary action${sb.legendaryCount === 1 ? '' : 's'} a round, spent on ${legendary.label} \u2014 ${legendary.total} between other creatures' turns.`);
+  }
+  const lair = heaviest(sb.entries.lair.filter((e) => !claimed.has(e)), damageOf);
+  if (lair) {
+    offTurn += lair.damage;
+    judged.push(`Lair actions are a menu taken once a round, so the heaviest counts: ${describe(lair)}.`);
+    noteChoice(lair);
+  }
+
+  /* An aura or other trait that deals damage only does so if the fight
+     obliges, so it is reported rather than counted. */
+  for (const entry of sb.entries.trait) {
+    if (claimed.has(entry)) continue;
+    const damage = parseDamage(entry.text);
+    if (damage > 0) {
+      skipped.push(`${entry.name || 'A trait'} deals ${damage}, but only if the fight obliges \u2014 an aura needs somebody standing in it, a death burst needs the creature dead. Add it to the round yourself if it will land.`);
+    }
+  }
+
+  /* ---- Rounds ----
+
+     A recharge or once-a-day action is not every round. It goes in the first
+     round and the routine in the rest, which is what the round table is for
+     and what the DMG does with a breath weapon. */
+
+  const burst = heaviest(bursts, damageOf);
+  /* A burst worth less than the routine would never be used over it, so it
+     changes nothing and the round stays one round long. */
+  const opener = burst && burst.damage > routine ? burst : null;
+  /* How the burst was read is worth saying either way — whether or not it
+     ends up being the thing that shapes the round. */
+  noteChoice(burst);
+  const primary = [routine, 0, 0, 0, 0, 0];
+  if (opener) {
+    /* On the round it breathes it is not also attacking, so the first round
+       is the burst rather than the two of them together. */
+    primary[0] = opener.damage;
+    primary[1] = routine;
+    primary[2] = routine;
+    judged.push(`${opener.entry.name} cannot be used every round, so it takes round 1 at ${opener.damage} and the routine takes rounds 2 and 3 at ${routine}. Averaged across the three that is ${Math.round((opener.damage + routine * 2) / 3)} a round, rather than the ${opener.damage + routine} the two come to added together.`);
+  } else if (burst) {
+    judged.push(`${burst.entry.name} is limited, and at ${burst.damage} it is worth less than the routine's ${routine} anyway, so it would never be used in place of one and the round is unchanged.`);
+  }
+
+  if (!routine && burst && !opener) primary[0] = burst.damage;
+
+  if (!routine && !burst && !offTurn) {
+    skipped.push('No damage found in any action. Set the damage per round yourself.');
   }
 
   return {
@@ -192,12 +403,16 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
       attackBonus,
       saveDC,
       extraDamage: offTurn,
-      roundCount: 1,
-      primary: [onTurn, 0, 0, 0, 0, 0],
+      roundCount: opener ? 3 : 1,
+      primary,
       secondary: [0, 0, 0, 0, 0, 0],
       traits,
       traitValues,
     },
-    report: { took: [`Armor Class ${sb.acValue}`, `Hit Points ${sb.hpValue}`, ...took], skipped },
+    report: {
+      took: [`Armor Class ${sb.acValue}`, `Hit Points ${sb.hpValue}`, ...took],
+      judged,
+      skipped,
+    },
   };
 }

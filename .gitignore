@@ -5,3 +5,6 @@ node_modules/
 dist/
 *.local
 .vite/
+
+# The upstream bestiary, kept so `npm run bestiary` need not refetch it.
+tools/.cache/

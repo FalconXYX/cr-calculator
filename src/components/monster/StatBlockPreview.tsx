@@ -76,14 +76,23 @@ function EntryGroup({ sb, section }: { sb: StatBlock; section: EntrySection }) {
   );
 }
 
-interface Props { sb: StatBlock; d: Derived; }
+interface Props {
+  sb: StatBlock;
+  d: Derived;
+  /** Two, once a block is long enough that one is a ribbon. */
+  columns: 1 | 2;
+}
 
-export function StatBlockPreview({ sb, d }: Props) {
+export function StatBlockPreview({ sb, d, columns }: Props) {
   const saves = savesText(sb, d);
   const skills = skillsText(sb, d);
 
   return (
-    <article className="sb" aria-label="Stat block preview">
+    <article className={`sb cols-${columns}`} aria-label="Stat block preview">
+      {/* The name, the defences, the ability scores and the traits are one
+          thing and stay together at the top of the first column. Only the
+          actions and what follows them may cross into the second. */}
+      <div className="sb-front">
       <h2 className="sb-name">{sb.name || 'Unnamed'}</h2>
       <p className="sb-meta">{metaText(sb)}</p>
       <div className="sb-rule" />
@@ -126,8 +135,11 @@ export function StatBlockPreview({ sb, d }: Props) {
       <Line label="Proficiency Bonus">{sign(d.pb)}</Line>
 
       <div className="sb-rule" />
-      {ENTRY_SECTIONS.map((s) => <EntryGroup key={s} sb={sb} section={s} />)}
+      <EntryGroup sb={sb} section="trait" />
+      </div>
 
+      {ENTRY_SECTIONS.filter((s) => s !== 'trait')
+        .map((s) => <EntryGroup key={s} sb={sb} section={s} />)}
     </article>
   );
 }

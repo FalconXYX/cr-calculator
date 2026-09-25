@@ -560,40 +560,62 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 /* ---------------- Vibe check report ---------------- */
 
-/* Sits in the room the stats column has spare under Offensive CR, so it
-   costs no height anywhere else. Nothing here goes below the calculator's
-   own type sizes. */
-.vibe-report {
-  padding: 8px 10px;
-  background: var(--accent-bg);
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-  line-height: 1.4;
-}
-.vibe-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 5px;
-}
-.vibe-head b {
-  font-family: var(--serif);
-  font-size: 14px;
-  font-style: italic;
-  color: var(--accent);
-}
-.vibe-col + .vibe-col { margin-top: 7px; }
-.vibe-col > span {
-  display: block;
+/* A panel of its own, below the calculator and above the Monster Maker.
+
+   It was a strip inside the stats column, which was wrong twice over: the
+   calculator is pinned to exactly one screen, so anything inside it takes its
+   height out of the trait list, and there is far more to say now than fits in
+   a gap. Out here it borrows the Monster Maker's roomier type — if the page
+   has to be scrolled to reach this at all, it may as well read well. */
+.vibe-sub {
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: .02em;
+  opacity: .82;
+}
+.vibe-head .mini { flex: none; }
+
+.vibe-body { display: grid; }
+/* One column per section that has anything in it, rather than three fixed
+   ones with a hole where a section had nothing to say. */
+@media (min-width: 861px) {
+  .vibe-body { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .vibe-col + .vibe-col { border-left: 1px solid var(--line-soft); border-top: 0; }
+}
+
+.vibe-col { padding: 11px 14px; }
+.vibe-col + .vibe-col { border-top: 1px solid var(--line-soft); }
+.vibe-col.judged { background: var(--accent-bg); }
+
+.vibe-col-head {
+  margin: 0 0 3px;
+  font-family: var(--sans);
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .07em;
   color: var(--accent);
-  margin-bottom: 2px;
 }
-.vibe-col.warn > span { color: var(--result); }
-.vibe-col ul { margin: 0; padding-left: 17px; }
-.vibe-report .mini { padding: 1px 7px; line-height: 1.2; }
+.vibe-col.warn .vibe-col-head { color: var(--result); }
+
+.vibe-col-note {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.vibe-col ul {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.vibe-col li + li { margin-top: 5px; }
 
 /* ---------------- Monster Maker ---------------- */
 
@@ -827,6 +849,52 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mini.danger:hover:not(:disabled) { border-color: var(--result); color: var(--result); }
 .mm-add { align-self: flex-start; margin-top: 1px; }
 
+/* ---- Catalogue ---- */
+
+.mm-catalog {
+  margin: 5px 0;
+  padding: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 2px;
+  background: var(--alt);
+}
+.mm-catalog-top { display: flex; align-items: center; gap: 5px; }
+/* input[type="search"] is set to `flex: none; width: 100%` further up, which
+   outranks .mm-text on its own and pushes the close button off the edge. */
+.mm-catalog-top .mm-text { flex: 1 1 0; width: auto; min-width: 0; }
+.mm-catalog-top .mini { flex: none; }
+.mm-catalog > .mm-note { margin: 5px 0 0; }
+
+/* Capped rather than free-running. The list sits in a pane that already
+   scrolls, and five hundred creature names in one column would push the rest
+   of the editor a long way off the bottom of it. No overscroll-behavior here:
+   a wheel that reaches the end of this list should carry on and move the pane
+   behind it, which is what containment would stop. */
+.mm-catalog-list { max-height: 260px; overflow-y: auto; margin-top: 5px; }
+.mm-catalog-list:empty { margin-top: 0; }
+
+.mm-catalog-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.mm-catalog-row:last-child { border-bottom: 0; }
+.mm-catalog-row:hover { background: var(--accent-bg); color: var(--accent); }
+.mm-catalog-row:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: -2px; }
+.mm-catalog-name { flex: 1 1 auto; min-width: 0; }
+.mm-catalog-note { flex: none; font-size: 12.5px; color: var(--muted); }
+
 /* ---- The block itself ---- */
 
 /* A card on the ground, the way a printed stat block sits on the page.
@@ -884,6 +952,44 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .sb-entry { margin: 0 0 8px; }
 .sb-entry-name { font-style: italic; font-weight: 700; }
 .sb-para { display: block; margin-top: 5px; }
+
+/* Two columns, which is what the printed books do with a big monster and for
+   the same reason: past a certain length one column is a ribbon.
+
+   `columns: 2 320px` makes two a maximum rather than a promise — the preview
+   pane is only half the window, so on a narrow screen the browser drops back
+   to one column instead of squeezing two into nothing. */
+.sb.cols-2 {
+  max-width: 1040px;
+  columns: 2 320px;
+  column-gap: 30px;
+  column-rule: 1px solid var(--line-soft);
+}
+/* The name, the defences, the ability scores and the traits are one thing.
+   A printed block never starts its second column part way through them, so
+   neither does this: keeping the group whole is what pushes the split down
+   to the actions, wherever the balance would otherwise have put it. */
+.sb.cols-2 .sb-front { break-inside: avoid; }
+
+/* Nothing that reads as a single thing may be cut down the middle. Prose is
+   fair game, and flows across the gap the way it does on a printed page. */
+.sb.cols-2 .sb-line,
+.sb.cols-2 .sb-abilities,
+.sb.cols-2 .sb-rule { break-inside: avoid; }
+.sb.cols-2 .sb-name,
+.sb.cols-2 .sb-head { break-after: avoid; break-inside: avoid; }
+
+/* One control, two states, so they read as a pair rather than two buttons. */
+.mm-cols { display: inline-flex; }
+.mm-cols .mini { margin-right: 0; border-radius: 0; }
+.mm-cols .mini:first-child { border-radius: 2px 0 0 2px; }
+.mm-cols .mini:last-child { border-radius: 0 2px 2px 0; margin-left: -1px; }
+.mini.on,
+.mini.on:hover:not(:disabled) {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: #fff;
+}
 
 @media (max-width: 860px) {
   .mm-panes { grid-template-columns: minmax(0, 1fr); }
