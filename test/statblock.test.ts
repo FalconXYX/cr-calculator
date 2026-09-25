@@ -12,6 +12,10 @@ import {
   imageFilename, layoutStatBlock, smallCapRuns, wrapSpans,
 } from '../src/lib/statblockImage.ts';
 import type { FontSpec, Measure } from '../src/lib/statblockImage.ts';
+import {
+  fiveToolsFilename, retag, retagName, toFiveTools, toFiveToolsMonster,
+} from '../src/lib/fivetools.ts';
+import { detag } from '../src/lib/detag.ts';
 import type { CalcState } from '../src/lib/types.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
 
@@ -806,6 +810,120 @@ is('lopsided is allowed, so long as the rule holds', sides[0]! > sides[1]!, true
 is('the file says which it is', imageFilename(drawn, 2), 'test-drake-2col.png');
 is('and a nameless one still gets a name',
   imageFilename({ ...drawn, name: '' }, 1), 'monster-1col.png');
+
+console.log('\n--- putting the 5etools markup back on ---');
+/* The strongest check available: put it through the reader the catalogue was
+   built with and see whether the same words come back. */
+const trips = [
+  'Melee Attack Roll: +14, reach 10 ft. Hit: 13 (1d10 + 8) Slashing damage plus 5 (2d4) Fire damage.',
+  'Ranged Attack Roll: +6, range 150/600 ft. Hit: 11 (2d8 + 2) Piercing damage.',
+  'Melee or Ranged Attack Roll: +5, reach 5 ft. or range 120 ft. Hit: 7 (1d8 + 3) Bludgeoning damage.',
+  'Dexterity Saving Throw: DC 21, each creature in a 60-foot Cone. Failure: 59 (17d6) Fire damage. Success: Half damage.',
+  'Trigger: The bandit is hit by a melee attack roll. Response: The bandit adds 2 to its AC.',
+  'Constitution Saving Throw: DC 16. First Failure: The target has the Restrained condition. Second Failure: The target has the Petrified condition.',
+  'Failure or Success: The sword returns. Failure by 5 or More: The target has the Prone condition.',
+  'Hit: 5 (1d6 + 2) Piercing damage. Hit or Miss: The javelin returns to its hand.',
+];
+for (const text of trips) {
+  is(`it survives the trip: ${text.slice(0, 34)}\u2026`, detag(retag(text)), text);
+}
+is('an attack line really does get tagged',
+  retag('Melee Attack Roll: +9, reach 5 ft.').startsWith('{@atkr m} {@hit 9}'), true);
+is('and a damage expression too',
+  retag('Hit: 13 (1d10 + 8) Slashing damage.').includes('{@damage 1d10 + 8}'), true);
+is('plain prose is left alone',
+  retag('The dragon makes three Rend attacks.'), 'The dragon makes three Rend attacks.');
+is('a recharge comes off the name', retagName('Fire Breath (Recharge 5\u20136)'), 'Fire Breath {@recharge 5}');
+is('and a plain recharge too', retagName('Cold Breath (Recharge 6)'), 'Cold Breath {@recharge}');
+is('a name with no recharge is untouched', retagName('Greatsword'), 'Greatsword');
+
+console.log('\n--- the 5etools file ---');
+const brew = S.defaultStatBlock();
+brew.name = 'Brew Beast';
+brew.size = 'Huge';
+brew.type = 'Dragon';
+brew.alignment = 'Chaotic Evil';
+brew.acValue = 18;
+brew.acNote = 'Natural Armor';
+brew.hpValue = 200;
+brew.abilities = { str: 22, dex: 10, con: 20, int: 12, wis: 14, cha: 16 };
+brew.saves = ['dex', 'con'];
+brew.skills = { perception: 'expertise', stealth: 'proficient' };
+brew.initiative = 'proficient';
+brew.proficiencyBonus = 5;
+brew.speeds = { walk: 40, burrow: 0, climb: 20, fly: 80, swim: 0, hover: true };
+brew.resistances = ['Cold'];
+brew.damageImmunities = ['Fire'];
+brew.conditionImmunities = ['Frightened'];
+brew.senses = { darkvision: 120, blindsight: 60, tremorsense: 0, truesight: 0, blindBeyond: true };
+brew.languages = ['Common', 'Draconic'];
+brew.telepathy = 120;
+brew.entries.trait = [{ id: 't', name: 'Amphibious', text: 'It breathes air and water.' }];
+brew.entries.action = [
+  { id: 'a', name: 'Bite', text: 'Melee Attack Roll: +11, reach 10 ft. Hit: 17 (2d10 + 6) Piercing damage.' },
+  { id: 'b', name: 'Leap', text: 'It jumps 30 feet.', kind: 'bonus' },
+  { id: 'r', name: 'Parry', text: 'Trigger: It is hit. Response: It adds 3 to its AC.', kind: 'reaction' },
+];
+brew.entries.legendary = [{ id: 'l', name: 'Pounce', text: 'It makes one Bite attack.' }];
+brew.entries.lair = [{ id: 'x', name: 'Grasping Roots', text: 'Roots erupt from the ground.' }];
+brew.legendaryCount = 2;
+
+const bd = S.derive(brew, CR10);
+const file = toFiveTools(brew, bd, { cr: '13', now: 1700000000 });
+const brewMeta = file['_meta'] as Record<string, unknown>;
+const beast = toFiveToolsMonster(brew, bd, { cr: '13' });
+
+is('the file declares a source', (brewMeta['sources'] as { json: string }[])[0]!.json, 'CRCalc');
+is('and says which rules it is for', brewMeta['edition'], 'one');
+is('and is stamped', brewMeta['dateAdded'], 1700000000);
+is('the creature points at that source', beast['source'], 'CRCalc');
+is('Huge is H', JSON.stringify(beast['size']), '["H"]');
+is('the type is lower case', beast['type'], 'dragon');
+is('Chaotic Evil is two letters', JSON.stringify(beast['alignment']), '["C","E"]');
+is('an armour note becomes a source of AC',
+  JSON.stringify(beast['ac']), '[{"ac":18,"from":["Natural Armor"]}]');
+is('hit dice are written out', JSON.stringify(beast['hp']), '{"average":200,"formula":"17d12 + 85"}');
+is('hovering is a flag on the speed', (beast['speed'] as Record<string, unknown>)['canHover'], true);
+is('a speed of zero is left out', 'swim' in (beast['speed'] as object), false);
+is('saves carry their totals', JSON.stringify(beast['save']), '{"dex":"+5","con":"+10"}');
+is('and expertise survives as the bigger number',
+  (beast['skill'] as Record<string, string>)['perception'], '+12');
+is('a two-word skill keeps its space',
+  'sleight of hand' in (beast['skill'] as object) === false, true);
+is('initiative keeps its tier',
+  JSON.stringify(beast['initiative']), '{"proficiency":1}');
+is('blindsight says how blind', (beast['senses'] as string[])[0],
+  'Blindsight 60 ft. (blind beyond this radius)');
+is('telepathy hangs off the last language',
+  (beast['languages'] as string[]).at(-1), 'Draconic; telepathy 120 ft.');
+is('damage words are lower case', JSON.stringify(beast['immune']), '["fire"]');
+is('so are conditions', JSON.stringify(beast['conditionImmune']), '["frightened"]');
+is('bonus actions get their own list', (beast['bonus'] as unknown[]).length, 1);
+is('and so do reactions', (beast['reaction'] as unknown[]).length, 1);
+is('legendary actions say how many when it is not three', beast['legendaryActions'], 2);
+/* 2024 blocks have no lair action list, so they ride along as actions. */
+is('a lair action is not dropped', (beast['action'] as { name: string }[]).length, 2);
+is('it is marked as one',
+  (beast['action'] as { name: string }[])[1]!.name, 'Grasping Roots (Lair Action)');
+is('the attack came through tagged',
+  (beast['action'] as { entries: string[] }[])[0]!.entries[0]!.startsWith('{@atkr m} {@hit 11}'), true);
+
+const plain = S.defaultStatBlock();
+plain.showHitDice = false;
+plain.legendaryCount = 3;
+const plainD = S.derive(plain, CR1);
+const bare = toFiveToolsMonster(plain, plainD, { cr: '1' });
+is('hit points with no dice are written as they are',
+  JSON.stringify(bare['hp']), '{"special":"75"}');
+is('three legendary actions is the default and goes unsaid',
+  'legendaryActions' in bare, false);
+is('an empty list is left out entirely', 'trait' in bare, false);
+is('True Neutral is one letter', JSON.stringify(bare['alignment']), '["N"]');
+is('Unaligned is U',
+  JSON.stringify(toFiveToolsMonster({ ...plain, alignment: 'Unaligned' }, plainD, { cr: '1' })['alignment']),
+  '["U"]');
+
+is('the file is named after the monster', fiveToolsFilename(brew), 'brew-beast-5etools.json');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

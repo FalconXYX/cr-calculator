@@ -31,8 +31,9 @@ The **Monster Maker** below it writes a stat block and scores it:
   could not work out.
 - Reads in **one column or two**, which is what the printed books do with a
   big monster and for the same reason.
-- Copies out as Markdown or plain text, downloads as Roll20 JSON, or saves as
-  a **PNG** in whichever column count is on screen.
+- Copies out as Markdown or plain text, downloads as **Roll20 JSON** or
+  **5etools homebrew JSON**, or saves as a **PNG** in whichever column count
+  is on screen.
 
 The target CR range matters and has to be set first — resistance
 multipliers, Undead Fortitude, Relentless and the two "level 10 or lower"
@@ -143,6 +144,30 @@ rating for 85%** of creatures, which `npm test` asserts a floor for. It is not
 a claim that the DMG procedure agrees with the designers — it does not, and
 2024 dragons come out low however carefully they are read — but a change that
 makes the reading worse shows up there.
+
+## Going back out as 5etools
+
+`src/lib/fivetools.ts` writes a block as a 5etools homebrew file: a `_meta`
+block naming the source, and one creature pointing at it. Fields are the
+inverse of what the catalogue importer reads — `Huge` becomes `["H"]`,
+`Chaotic Evil` becomes `["C","E"]`, and saves and skills are written as the
+totals they print rather than the tiers behind them, which is what 5etools
+stores and what lets expertise survive the trip.
+
+The prose has its markup put back on, because text handed over without it
+renders flat and unlinked. Every rule runs once and in an order where each
+consumes the shape the next would otherwise have matched: the attack line
+becomes `{@atkr m} {@hit 14}` before anything goes looking for a loose number,
+and dice are wrapped before the bare `DC` rule runs. `DC` is matched
+case-sensitively for the same reason — `{@dc 21}` is lower case, so nothing
+can wrap what has already been wrapped.
+
+That gives the strongest test available for it: put the result back through
+`src/lib/detag.ts`, the same reader the catalogue was built with, and check
+the same words come out. Eight representative lines do that in `npm test`.
+
+2024 blocks have no separate lair action list, so lair actions ride along as
+actions with `(Lair Action)` in the name rather than being dropped.
 
 ## Drawing the block
 

@@ -38,6 +38,7 @@ import { toMarkdown, toPlainText } from "../../lib/statblockText.ts";
 import { roll20Filename, toRoll20Json } from "../../lib/roll20.ts";
 import { drawStatBlock, paletteFromPage } from "../../lib/statblockCanvas.ts";
 import { imageFilename } from "../../lib/statblockImage.ts";
+import { fiveToolsFilename, toFiveToolsJson } from "../../lib/fivetools.ts";
 import { StatBlockPreview } from "./StatBlockPreview.tsx";
 import {
   CatalogPicker,
@@ -183,6 +184,15 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
     a.remove();
     URL.revokeObjectURL(url);
   }, []);
+
+  /* 5etools reads a homebrew file, which is one creature inside a wrapper
+     that names where it came from. */
+  const downloadFiveTools = useCallback(() => {
+    download(
+      new Blob([toFiveToolsJson(sb, d, { cr: d.cr })], { type: "application/json" }),
+      fiveToolsFilename(sb),
+    );
+  }, [sb, d, download]);
 
   const downloadRoll20 = useCallback(() => {
     download(
@@ -690,6 +700,9 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
           </button>
           <button type="button" className="mini" onClick={downloadRoll20}>
             Roll20 JSON
+          </button>
+          <button type="button" className="mini" onClick={downloadFiveTools}>
+            5eTools JSON
           </button>
           <button type="button" className="mini" onClick={downloadImage}>
             PNG

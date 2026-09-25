@@ -14,7 +14,7 @@ import { createCipheriv, createHash, pbkdf2Sync } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detag } from './detag.mjs';
+import { detag } from '../src/lib/detag.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = 'https://raw.githubusercontent.com/5etools-mirror-3/5etools-src/main/data/bestiary/bestiary-xmm.json';
