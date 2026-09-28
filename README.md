@@ -22,7 +22,9 @@ React + TypeScript, built with Vite.
 The **Monster Maker** below it writes a stat block and scores it:
 
 - **Start From a Monster** loads a published creature into the editor, to
-  take apart and change.
+  take apart and change. Renaming it offers to rename what the prose calls
+  it, too — a winter wolf made into an inferno drake stops calling itself
+  the wolf.
 - **Browse traits** fills a trait from a catalogue of every named trait,
   one row each.
 - **Vibe Check CR** reads the finished block — its armour, hit points,
@@ -31,9 +33,9 @@ The **Monster Maker** below it writes a stat block and scores it:
   could not work out.
 - Reads in **one column or two**, which is what the printed books do with a
   big monster and for the same reason.
-- Copies out as Markdown or plain text, downloads as **Roll20 JSON** or
-  **5etools homebrew JSON**, or saves as a **PNG** in whichever column count
-  is on screen.
+- Copies out as Markdown, plain text, or a **PNG straight onto the
+  clipboard**; downloads as **Roll20 JSON**, **5etools homebrew JSON**, or a
+  PNG file. The picture follows whichever column count is on screen.
 
 The target CR range matters and has to be set first — resistance
 multipliers, Undead Fortitude, Relentless and the two "level 10 or lower"
@@ -192,6 +194,11 @@ Three things are worth knowing:
 - **The picture matches the page.** Colours and fonts are read from the live
   CSS variables, so a block exported in dark mode comes out dark, and the type
   is whatever the preview is already using.
+- **Copying hands over a promise, not a picture.** Safari only accepts a
+  clipboard write that is still inside the click that asked for it, and
+  awaiting the canvas first would let that click end — so the blob goes into
+  the `ClipboardItem` unresolved. A browser with no `ClipboardItem` at all is
+  told to use Save PNG rather than left wondering.
 
 The preview uses CSS columns rather than this layout, with `columns: 2 320px`
 so that two is a maximum rather than a promise — the preview pane is only half
@@ -204,8 +211,21 @@ actions wherever balancing would otherwise have put it.
 
 `src/data/monsterTraits.ts` and `src/data/monsterTemplates.ts` are generated,
 not written. `npm run bestiary` rebuilds them from
-[5etools' bestiary data](https://github.com/5etools-mirror-3/5etools-src),
-and caches the download under `tools/.cache`.
+[5etools' bestiary data](https://github.com/5etools-mirror-3/5etools-src) —
+all 110 books of it — and caches the download under `tools/.cache`.
+
+Of **4,559** creatures in print, **3,772** survive two filters:
+
+- **Reprints go.** `reprintedAs` is the data's own record of what was carried
+  forward, which is worth far more than matching names: it knows the 2014
+  Goblin became the Goblin Warrior, and it knows which handful of creatures in
+  otherwise wholly-reprinted books were *not* carried over.
+- **Copies are written out.** A quarter of the bestiary is stored as a
+  difference — a Flying Dagger is "a Flying Sword, with 'sword' read as
+  'dagger' and the Longsword action swapped" — and `tools/resolveCopy.mjs`
+  resolves them. All 3,772 come out whole. 187 are built on creature
+  templates, which are not followed, and those come out as their base
+  creature; the build says so.
 
 The converter does three jobs worth knowing about:
 
@@ -220,8 +240,10 @@ The converter does three jobs worth knowing about:
   above what proficiency explains, and take the nearer tier.
 - **One row per trait.** Creatures word the same trait differently — a death
   burst has its own dice and its own save — but a picker that shows Death
-  Burst nine times is one nobody can read. The wording the most creatures
-  share wins, and the row says how many have it.
+  Burst nine times is one nobody can read. One row each, and it says how many
+  creatures have it. The wording comes from the 2024 books where there is
+  one: there are ten years of older books and one new one, so counting alone
+  would have every trait phrased as it was in 2014.
 - **Leaving out the defaults.** Anything matching a fresh stat block is
   dropped and put back by `reviveStatBlock`, which is a third off the
   download. A test compares the defaults the data was pruned against with
@@ -233,10 +255,10 @@ panel lists them too.
 
 ## What ships, and what is sealed
 
-The Monster Manual is Wizards of the Coast's. 330 of its 503 creatures are
-also in the **System Reference Document 5.2**, which is published under
-Creative Commons Attribution 4.0, and those ship with the site for everyone.
-The other 173 are **encrypted**, and a password opens them.
+None of this is Wizards of the Coast's to give away. 336 of the 3,772
+creatures are in the **System Reference Document 5.2**, which is published
+under Creative Commons Attribution 4.0, and those ship with the site for
+everyone. The other 3,436 are **encrypted**, and a password opens them.
 
 Encrypted rather than filtered, because a gate that only hid the list would
 not be a gate: the blocks would still be sitting in the bundle for anyone who
@@ -259,6 +281,16 @@ There is no stored hash to compare against and none is needed: AES-GCM carries
 an authentication tag, so a key built from the wrong password fails to decrypt
 rather than producing plausible rubbish. The sealed chunk is never fetched
 until somebody tries a password.
+
+Coming back on a later visit takes the password up again but does no work with
+it: whether it still opens anything is settled the first time the creatures
+are actually wanted. Three and a half thousand stat blocks is a megabyte, and
+decrypting it on every page load — for exactly the people who use the site
+most — would be backwards.
+
+Nothing else is bundled either. The traits are open to everyone and are still
+a third of a megabyte, so they arrive when a trait list is opened rather than
+sitting in front of the calculator.
 
 **What this is and is not.** It keeps the material away from anyone who has
 not been told the password, which is the job. It is not proof against somebody

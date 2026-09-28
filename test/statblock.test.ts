@@ -16,6 +16,7 @@ import {
   fiveToolsFilename, retag, retagName, toFiveTools, toFiveToolsMonster,
 } from '../src/lib/fivetools.ts';
 import { detag } from '../src/lib/detag.ts';
+import { findSelfName, renameThroughout, selfNameFor } from '../src/lib/rename.ts';
 import type { CalcState } from '../src/lib/types.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
 
@@ -924,6 +925,59 @@ is('Unaligned is U',
   '["U"]');
 
 is('the file is named after the monster', fiveToolsFilename(brew), 'brew-beast-5etools.json');
+
+console.log('\n--- renaming a monster and its prose ---');
+const wolf = S.defaultStatBlock();
+wolf.name = 'Winter Wolf';
+wolf.entries.trait = [{
+  id: 't', name: 'Pack Tactics',
+  text: "The wolf has Advantage on an attack roll against a creature if at least one of the wolf's allies is within 5 feet of the creature and the ally doesn't have the Incapacitated condition.",
+}];
+wolf.entries.action = [
+  { id: 'a', name: 'Bite', text: 'Melee Attack Roll: +6, reach 5 ft. Hit: 11 (2d6 + 4) Piercing damage. If the target is Large or smaller, it has the Prone condition.' },
+];
+
+is('it works out what the prose calls it', findSelfName(wolf)?.noun, 'wolf');
+is('and how often it says so', findSelfName(wolf)?.count, 2);
+/* Without the blocklist the commonest phrase in most blocks is "the target",
+   and every monster would think that was its name. */
+is('a target is not a creature\u2019s name',
+  findSelfName(wolf)?.noun === 'target', false);
+is('nor is a condition',
+  findSelfName(wolf)?.noun === 'incapacitated', false);
+
+const generic = S.defaultStatBlock();
+generic.entries.action = [{ id: 'a', name: 'Teleport', text: 'The creature teleports up to 60 feet.' }];
+is('a block written generically has nothing to find', findSelfName(generic), null);
+
+is('a name gives up its noun', selfNameFor('Inferno Drake'), 'drake');
+is('a one-word name is its own noun', selfNameFor('Balrog'), 'balrog');
+/* A swarm calls itself the swarm, not the bats. */
+is('a name built round "of" keeps the first word', selfNameFor('Swarm of Bats'), 'swarm');
+is('an empty name gives nothing', selfNameFor('   '), '');
+
+const drake = renameThroughout(wolf, 'wolf', 'drake');
+is('every mention is swapped', drake.changed, 2);
+is('a capital at the start of a sentence stays capital',
+  drake.next.entries.trait[0]!.text.startsWith('The drake has'), true);
+is('and a possessive keeps its apostrophe',
+  drake.next.entries.trait[0]!.text.includes("the drake's allies"), true);
+is('what was never the creature is untouched',
+  drake.next.entries.action[0]!.text.includes('the target is Large'), true);
+is('the original is left alone', wolf.entries.trait[0]!.text.includes('The wolf has'), true);
+
+/* Renaming Winter Wolf to Fire Wolf changes nothing, because both are wolves. */
+is('a rename to the same noun is no work at all',
+  renameThroughout(wolf, 'wolf', 'wolf').changed, 0);
+is('and hands back the very same block',
+  renameThroughout(wolf, 'wolf', 'wolf').next === wolf, true);
+
+const named = S.defaultStatBlock();
+named.entries.action = [{ id: 'a', name: 'Wolf Bite', text: 'The wolf bites. A dire wolfhound is unaffected.' }];
+is('an entry name is renamed too',
+  renameThroughout(named, 'wolf', 'drake').next.entries.action[0]!.name, 'Drake Bite');
+is('but a longer word that merely contains it is not',
+  renameThroughout(named, 'wolf', 'drake').next.entries.action[0]!.text.includes('wolfhound'), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

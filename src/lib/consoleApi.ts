@@ -45,7 +45,7 @@ export function installConsoleApi(): void {
     enumerable: false,
   });
 
-  void restore();
+  restore();
   console.info(
     `CR Calculator. ${status()}\nUnlock with crCalc.unlock('…') if you have been given the password.`,
   );

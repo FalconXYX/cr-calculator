@@ -2,8 +2,11 @@
    Source: the 2025 Monster Manual as published in 5etools' bestiary data. */
 
 /** Creatures in the reference document, which everyone gets. */
-export const OPEN_COUNT = 330;
+export const OPEN_COUNT = 336;
 
 /** Creatures behind the password. Saying how many costs nothing; saying
     which would mean shipping them. */
-export const SEALED_COUNT = 173;
+export const SEALED_COUNT = 3436;
+
+/** Traits in the catalogue, so a heading can say so before they arrive. */
+export const TRAIT_COUNT = 1212;

@@ -39,6 +39,11 @@ import { roll20Filename, toRoll20Json } from "../../lib/roll20.ts";
 import { drawStatBlock, paletteFromPage } from "../../lib/statblockCanvas.ts";
 import { imageFilename } from "../../lib/statblockImage.ts";
 import { fiveToolsFilename, toFiveToolsJson } from "../../lib/fivetools.ts";
+import {
+  findSelfName,
+  renameThroughout,
+  selfNameFor,
+} from "../../lib/rename.ts";
 import { StatBlockPreview } from "./StatBlockPreview.tsx";
 import {
   CatalogPicker,
@@ -53,15 +58,19 @@ import {
   Warnings,
 } from "./EditorBits.tsx";
 import type { CatalogOption, EntryCatalog, TierRow } from "./EditorBits.tsx";
-import { MONSTER_TRAITS } from "../../data/monsterTraits.ts";
 import {
   loadTemplates,
+  loadTraits,
   searchTemplates,
   searchTraits,
   templateBlock,
 } from "../../lib/catalog.ts";
 import type { CatalogTrait, MonsterTemplate } from "../../lib/catalog.ts";
-import { sealedTemplates, subscribe } from "../../lib/vault.ts";
+import {
+  openedTemplates,
+  subscribe,
+  unlockGeneration,
+} from "../../lib/vault.ts";
 
 /** Initiative shares the skills list, so it needs an id that no skill uses. */
 const INITIATIVE_ID = "@initiative";
@@ -87,13 +96,24 @@ function useTemplates(wanted: boolean): readonly MonsterTemplate[] | null {
     };
   }, [wanted, list]);
 
-  /* Whatever the password has opened, which can arrive at any moment — the
-     console is a door somebody can walk through while this list is on screen. */
-  const opened = useSyncExternalStore(
+  /* The password is a door somebody can walk through while this list is on
+     screen, so the vault is watched rather than read once. */
+  const generation = useSyncExternalStore(
     subscribe,
-    sealedTemplates,
-    sealedTemplates,
+    unlockGeneration,
+    unlockGeneration,
   );
+  const [opened, setOpened] = useState<readonly MonsterTemplate[]>([]);
+  useEffect(() => {
+    if (!wanted) return;
+    let live = true;
+    void openedTemplates().then((l) => {
+      if (live) setOpened(l);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted, generation]);
 
   return useMemo(() => {
     if (!list) return null;
@@ -110,19 +130,30 @@ const traitOption = (t: CatalogTrait): CatalogOption => ({
   text: t.text,
 });
 
+/* Which book, not just which page. Three thousand creatures come from a
+   hundred of them, and the book is what tells two near-namesakes apart. */
 const templateOption = (t: MonsterTemplate): CatalogOption => ({
   id: t.id,
   name: t.name,
-  note: `CR ${t.cr} · page ${t.page}`,
+  note: `CR ${t.cr} · ${[t.source, t.page || null].filter(Boolean).join(" ")}`,
   text: "",
 });
 
-const TRAIT_CATALOG: EntryCatalog = {
-  buttonLabel: "Browse traits",
-  placeholder: "Search traits…",
-  note: `${MONSTER_TRAITS.length} traits to start from. Picking one fills the entry you are on.`,
-  search: (query) => searchTraits(MONSTER_TRAITS, query).map(traitOption),
-};
+/** The trait catalogue, fetched the first time a trait section is opened. */
+function useTraits(wanted: boolean): readonly CatalogTrait[] | null {
+  const [list, setList] = useState<readonly CatalogTrait[] | null>(null);
+  useEffect(() => {
+    if (!wanted || list) return;
+    let live = true;
+    void loadTraits().then((l) => {
+      if (live) setList(l);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted, list]);
+  return list;
+}
 
 interface Props {
   sb: StatBlock;
@@ -137,6 +168,20 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
   const d = useMemo(() => derive(sb, row), [sb, row]);
 
   const templates = useTemplates(open === "template");
+  const traits = useTraits(open === "traits");
+  const traitCatalog: EntryCatalog = useMemo(
+    () => ({
+      buttonLabel: "Browse traits",
+      placeholder: "Search traits\u2026",
+      note: traits
+        ? `${traits.length} traits to start from. Picking one fills the entry you are on.`
+        : "",
+      search: traits
+        ? (query) => searchTraits(traits, query).map(traitOption)
+        : null,
+    }),
+    [traits],
+  );
   /* What was in the editor before a template landed on top of it, so that
      loading the wrong dragon costs one click rather than the afternoon. */
   const [replaced, setReplaced] = useState<{
@@ -154,9 +199,16 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
 
   /* "Copied" is a transient label on the button that pressed it. The timer is
      held in a ref so a second press restarts it instead of stacking. */
-  const [copied, setCopied] = useState<"md" | "txt" | "fail" | null>(null);
+  const [copied, setCopied] = useState<
+    "md" | "txt" | "png" | "fail" | "noimage" | null
+  >(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  /** Put the label back to normal once it has been read. */
+  const clearLater = useCallback((ms = 1600) => {
+    timer.current = setTimeout(() => setCopied(null), ms);
+  }, []);
 
   const copy = useCallback(
     (which: "md" | "txt") => {
@@ -166,11 +218,9 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
         .writeText(text)
         .then(() => setCopied(which))
         .catch(() => setCopied("fail"))
-        .finally(() => {
-          timer.current = setTimeout(() => setCopied(null), 1600);
-        });
+        .finally(() => clearLater());
     },
-    [sb, d],
+    [sb, d, clearLater],
   );
 
   /** Hand the browser a file. Roll20 imports one, and so does a picture. */
@@ -204,14 +254,53 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
   /* One column or two, the same choice the preview is showing. Drawn at
      twice the size so it is still sharp when somebody zooms in on it. */
   const [columns, setColumns] = useState<1 | 2>(1);
-  const downloadImage = useCallback(() => {
+
+  /* The prose calls the creature something — "the wolf" — and renaming the
+     block does not rename that. Finding every one by hand across the traits
+     and the actions is the tedious half of making a published monster yours. */
+  const spoken = useMemo(() => findSelfName(sb), [sb]);
+  const wanted = selfNameFor(sb.name);
+  const renamable =
+    spoken && wanted && spoken.noun !== wanted ? { ...spoken, wanted } : null;
+
+  const applyRename = useCallback(() => {
+    if (!renamable) return;
+    onChange(renameThroughout(sb, renamable.noun, renamable.wanted).next);
+  }, [sb, renamable, onChange]);
+
+  const pngBlob = useCallback((): Promise<Blob> => {
     const host = document.querySelector(".sb") ?? document.documentElement;
     const canvas = document.createElement("canvas");
     drawStatBlock(canvas, sb, d, { columns }, paletteFromPage(host), 2);
-    canvas.toBlob((blob) => {
-      if (blob) download(blob, imageFilename(sb, columns));
-    }, "image/png");
-  }, [sb, d, columns, download]);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) =>
+          blob ? resolve(blob) : reject(new Error("the canvas gave no image")),
+        "image/png",
+      );
+    });
+  }, [sb, d, columns]);
+
+  const copyImage = useCallback(() => {
+    clearTimeout(timer.current);
+    if (typeof ClipboardItem === "undefined") {
+      setCopied("noimage");
+      clearLater(3600);
+      return;
+    }
+    /* The picture goes over as a promise rather than being awaited first.
+       Safari only takes a clipboard write that is still inside the click that
+       asked for it, and awaiting the canvas would let that click end. */
+    void navigator.clipboard
+      .write([new ClipboardItem({ "image/png": pngBlob() })])
+      .then(() => setCopied("png"))
+      .catch(() => setCopied("fail"))
+      .finally(() => clearLater());
+  }, [pngBlob, clearLater]);
+
+  const downloadImage = useCallback(() => {
+    void pngBlob().then((blob) => download(blob, imageFilename(sb, columns)));
+  }, [pngBlob, sb, columns, download]);
 
   const set = <K extends keyof StatBlock>(key: K, value: StatBlock[K]) => {
     onChange({ ...sb, [key]: value });
@@ -305,6 +394,15 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
             onChange={(v) => set("name", v)}
             placeholder="Monster"
           />
+          {renamable && (
+            <p className="mm-note">
+              The traits and actions call it <b>the {renamable.noun}</b>,{" "}
+              {renamable.count} time{renamable.count === 1 ? "" : "s"}.{" "}
+              <button type="button" className="mini" onClick={applyRename}>
+                Call it the {renamable.wanted}
+              </button>
+            </p>
+          )}
           <SelectField
             label="Size"
             value={sb.size}
@@ -628,7 +726,7 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
             on, to edit from there.
           </p>
           <EntryList
-            catalog={TRAIT_CATALOG}
+            catalog={traitCatalog}
             entries={sb.entries.trait}
             onChange={(l) => setEntries("trait", l)}
             addLabel="Add trait"
@@ -698,14 +796,17 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
           <button type="button" className="mini" onClick={() => copy("txt")}>
             {copied === "txt" ? "Copied" : "Copy text"}
           </button>
+          <button type="button" className="mini" onClick={copyImage}>
+            {copied === "png" ? "Copied" : "Copy PNG"}
+          </button>
+          <button type="button" className="mini" onClick={downloadImage}>
+            Save PNG
+          </button>
           <button type="button" className="mini" onClick={downloadRoll20}>
             Roll20 JSON
           </button>
           <button type="button" className="mini" onClick={downloadFiveTools}>
             5eTools JSON
-          </button>
-          <button type="button" className="mini" onClick={downloadImage}>
-            PNG
           </button>
           <div className="mm-cols" role="group" aria-label="Columns">
             {([1, 2] as const).map((n) => (
@@ -722,6 +823,12 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
           </div>
           {copied === "fail" && (
             <span className="mm-note">Clipboard blocked by the browser.</span>
+          )}
+          {copied === "noimage" && (
+            <span className="mm-note">
+              This browser will not take a picture on its clipboard — use
+              Save PNG.
+            </span>
           )}
         </div>
         <StatBlockPreview sb={sb} d={d} columns={columns} />

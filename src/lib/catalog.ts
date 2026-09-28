@@ -33,6 +33,8 @@ export interface MonsterTemplate {
   cr: string;
   /** The rating as a number, so a list can sort by it. */
   crValue: number;
+  /** Which book it was printed in, as 5etools abbreviates them. */
+  source: string;
   /** Page in the book it was printed in, for looking it up. */
   page: number;
   /** Also in the System Reference Document 5.2, which is openly licensed. */
@@ -103,10 +105,24 @@ export const plainName = (name: string): string =>
 
 /* ---------------- Loading ---------------- */
 
-let pending: Promise<readonly MonsterTemplate[]> | null = null;
+let templates: Promise<readonly MonsterTemplate[]> | null = null;
+let traits: Promise<readonly CatalogTrait[]> | null = null;
 
 /** Fetches the creature catalogue, once, and hands out the same list after. */
 export function loadTemplates(): Promise<readonly MonsterTemplate[]> {
-  pending ??= import('../data/monsterTemplates.ts').then((m) => m.MONSTER_TEMPLATES);
-  return pending;
+  templates ??= import('../data/monsterTemplates.ts').then((m) => m.MONSTER_TEMPLATES);
+  return templates;
+}
+
+/**
+ * The trait catalogue, which is also fetched rather than bundled.
+ *
+ * Twelve hundred traits is a third of a megabyte, and it used to ride in the
+ * first load because there were only a hundred and thirty of them. It is open
+ * to everyone, unlike the creatures, but that is no reason to make everyone
+ * wait for it before the calculator appears.
+ */
+export function loadTraits(): Promise<readonly CatalogTrait[]> {
+  traits ??= import('../data/monsterTraits.ts').then((m) => m.MONSTER_TRAITS);
+  return traits;
 }

@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NumberField } from './Fields.tsx';
 import { InfoButton } from './Popover.tsx';
 import type { PopoverContent } from './Popover.tsx';
 import { TRAITS, STAT_TRAITS, NO_EFFECT_TRAITS, SPELLCASTING_NOTE } from '../lib/traits.ts';
-import { MONSTER_TRAITS } from '../data/monsterTraits.ts';
-import { plainName } from '../lib/catalog.ts';
+import { loadTraits, plainName } from '../lib/catalog.ts';
+import type { CatalogTrait } from '../lib/catalog.ts';
 import type { Tier, Trait } from '../lib/types.ts';
 
 /* Every name the panel already carries, so the catalogue below can leave them
@@ -21,10 +21,24 @@ const ALREADY_LISTED = new Set([
  * Every other named trait in circulation, for looking one up.
  *
  * The answer to "what about X?" should be visible rather than missing, even
- * where X is a feature the DMG puts no number on.
+ * where X is a feature the DMG puts no number on. Twelve hundred of them is a
+ * third of a megabyte, so they arrive when the group is opened or searched
+ * rather than sitting in the way of the calculator appearing.
  */
-const MANUAL_TRAITS = MONSTER_TRAITS
-  .filter((t) => !ALREADY_LISTED.has(plainName(t.name).toLowerCase()));
+function useManualTraits(wanted: boolean): CatalogTrait[] {
+  const [list, setList] = useState<CatalogTrait[]>([]);
+  useEffect(() => {
+    if (!wanted || list.length) return;
+    let live = true;
+    void loadTraits().then((all) => {
+      if (live) {
+        setList(all.filter((t) => !ALREADY_LISTED.has(plainName(t.name).toLowerCase())));
+      }
+    });
+    return () => { live = false; };
+  }, [wanted, list.length]);
+  return list;
+}
 
 interface Props {
   traits: Record<string, boolean>;
@@ -89,6 +103,10 @@ export function TraitsPanel({
 }: Props) {
   const q = search.trim().toLowerCase();
   const [showManual, setShowManual] = useState(false);
+  /* Opened, or searched — a search that would match one of them has to be
+     able to, which means fetching them. */
+  const manualOpen = showManual || q.length > 0;
+  const manualTraits = useManualTraits(manualOpen);
 
   const matches = useMemo(() => {
     const hit = (t: { name: string; example?: string; desc: string; effect?: string }) =>
@@ -97,15 +115,14 @@ export function TraitsPanel({
       stats: STAT_TRAITS.filter(hit),
       scoring: [...TRAITS].filter(hit).sort((a, b) => a.name.localeCompare(b.name)),
       none: NO_EFFECT_TRAITS.filter(hit),
-      manual: MANUAL_TRAITS.filter((t) => hit({ name: t.name, example: t.example, desc: t.text })),
+      manual: manualTraits.filter((t) => hit({ name: t.name, example: t.example, desc: t.text })),
     };
-  }, [q]);
+  }, [q, manualTraits]);
 
   const count = Object.values(traits).filter(Boolean).length;
   /* A search that matches a hidden group opens it, so hits are never
      silently withheld. */
   const noEffectOpen = showNoEffect || q.length > 0;
-  const manualOpen = showManual || q.length > 0;
   const nothingFound =
     !matches.stats.length && !matches.scoring.length
     && !matches.none.length && !matches.manual.length;
@@ -190,7 +207,10 @@ export function TraitsPanel({
           </>
         )}
 
-        {matches.manual.length > 0 && (
+        {/* Always shown, even before the catalogue arrives: it is the button
+            that fetches it, so hiding it until it is loaded would mean it
+            never loaded at all. */}
+        {(
           <>
             <button
               type="button"
@@ -199,9 +219,13 @@ export function TraitsPanel({
               aria-controls="manualGroup"
               onClick={() => setShowManual((v) => !v)}
             >
-              {manualOpen ? '▾ ' : '▸ '}Other traits ({matches.manual.length})
+              {manualOpen ? '▾ ' : '▸ '}Other traits
+              {manualTraits.length > 0 && ` (${matches.manual.length})`}
             </button>
             <div className="noeffect-group" id="manualGroup" hidden={!manualOpen}>
+              {manualOpen && !manualTraits.length && (
+                <p className="tip">Fetching the catalogue…</p>
+              )}
               {matches.manual.map((t) => (
                 <div className="trait readonly" key={t.id}>
                   <span className="trait-name">{t.name}</span>

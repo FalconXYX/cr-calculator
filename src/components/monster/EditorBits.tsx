@@ -345,7 +345,8 @@ export interface EntryCatalog {
   buttonLabel: string;
   placeholder: string;
   note?: string;
-  search: (query: string) => CatalogOption[];
+  /** Null until the catalogue has arrived. */
+  search: ((query: string) => CatalogOption[]) | null;
 }
 
 interface EntryListProps {

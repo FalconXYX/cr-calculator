@@ -15,10 +15,11 @@ import { gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detag } from '../src/lib/detag.ts';
+import { indexBy, resolveCopy } from './resolveCopy.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE = 'https://raw.githubusercontent.com/5etools-mirror-3/5etools-src/main/data/bestiary/bestiary-xmm.json';
-const CACHE = join(ROOT, 'tools', '.cache', 'bestiary-xmm.json');
+const REMOTE = 'https://raw.githubusercontent.com/5etools-mirror-3/5etools-src/main/data/bestiary';
+const CACHE = join(ROOT, 'tools', '.cache', 'bestiary');
 
 /* Rounds of PBKDF2 between the password and the key. High enough that
    guessing costs about half a second a try in a browser, which is the whole
@@ -79,6 +80,20 @@ function crValue(cr) {
 }
 
 const abilityMod = (score) => Math.floor((score - 10) / 2);
+
+/**
+ * The first whole number in whatever it is handed.
+ *
+ * Summoned creatures state their armour and hit points as sums — "11 + the
+ * spell's level", "40 + 10 for each spell level above 4" — which is not a
+ * number and cannot be one. Taking the number it starts from gives a block
+ * that is at least usable, which is better than a hole in the data.
+ */
+function firstNumber(value, fallback) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const found = /-?\d+/.exec(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
+  return found ? Number(found[0]) : fallback;
+}
 
 /** The first signed number, so "+4 (+6 while in snake form)" reads as 4. */
 const printedBonus = (raw) => Number(/[+-]?\d+/.exec(String(raw))?.[0] ?? 0);
@@ -266,9 +281,9 @@ function convert(m, report) {
     size: sizeOf(m),
     type: typeOf(m),
     alignment: alignmentOf(m),
-    acValue: Number(m.ac?.[0]?.ac ?? m.ac?.[0] ?? 10),
+    acValue: firstNumber(m.ac?.[0]?.ac ?? m.ac?.[0]?.special ?? m.ac?.[0], 10),
     acNote: '',
-    hpValue: Number(m.hp?.average ?? 1),
+    hpValue: Math.max(1, firstNumber(m.hp?.average ?? m.hp?.special, 1)),
     showHitDice: true,
     /* Upstream stores the multiple of the proficiency bonus, which is exactly
        the app's three tiers. */
@@ -276,7 +291,7 @@ function convert(m, report) {
       : m.initiative?.proficiency === 1 ? 'proficient' : 'none',
     proficiencyBonus: pb,
     speeds: speedsOf(m),
-    abilities: Object.fromEntries(ABILITIES.map((a) => [a, Number(m[a] ?? 10)])),
+    abilities: Object.fromEntries(ABILITIES.map((a) => [a, firstNumber(m[a], 10)])),
     saves: savesOf(m, mods, pb, report),
     skills: skillsOf(m, mods, pb, report),
     vulnerabilities: wordsOf(m.vulnerable),
@@ -295,14 +310,17 @@ function convert(m, report) {
       legendary: [...entriesFrom(m.legendary, 'l'), ...spells('legendary', 'l')],
       lair: [],
     },
-    legendaryCount: Number(m.legendaryActions ?? 3),
+    legendaryCount: firstNumber(m.legendaryActions, 3),
   };
 
   return {
-    id: slug(m.name),
+    id: slug(`${m.name}-${m.source ?? ''}`),
     name: block.name,
     cr,
     crValue: crValue(cr),
+    /* Which book, and where in it. With three thousand creatures from a
+       hundred sources, the book is what tells two Dragon Turtles apart. */
+    source: String(m.source ?? ''),
     page: Number(m.page ?? 0),
     srd: Boolean(m.srd52),
     block,
@@ -391,11 +409,13 @@ const plainName = (name) => name.replace(/\s*\([^)]*\)\s*$/, '').trim();
  * the most creatures share wins and the rest go, since every one of them is a
  * starting point to be edited anyway.
  */
+/** The books written for the 2024 rules, whose phrasing the maker follows. */
+const CURRENT_SOURCES = new Set(['XMM', 'XPHB', 'XDMG']);
+
 function traitCatalogue(monsters) {
-  /* Grouped by name, then by the exact words, so the commonest wording of
-     each is the one that survives. */
+  /* Grouped by name, then by the exact words. */
   const groups = new Map();
-  for (const { name: monster, block } of monsters) {
+  for (const { name: monster, source, block } of monsters) {
     for (const t of block.entries.trait) {
       if (!t.name || !t.text) continue;
       const key = plainName(t.name).toLowerCase();
@@ -403,13 +423,25 @@ function traitCatalogue(monsters) {
       if (!group) { group = { total: 0, wordings: new Map() }; groups.set(key, group); }
       group.total += 1;
       const wording = group.wordings.get(t.text);
-      if (wording) wording.count += 1;
-      else group.wordings.set(t.text, { name: t.name, text: t.text, example: monster, count: 1 });
+      if (wording) {
+        wording.count += 1;
+        wording.current ||= CURRENT_SOURCES.has(source);
+      } else {
+        group.wordings.set(t.text, {
+          name: t.name, text: t.text, example: monster, count: 1,
+          current: CURRENT_SOURCES.has(source),
+        });
+      }
     }
   }
 
   return [...groups.values()].map((group) => {
-    const [best] = [...group.wordings.values()].sort((a, b) => b.count - a.count);
+    /* A wording from the current books wins over one that is merely more
+       common: there are ten years of older books and one new one, so
+       counting alone would have every trait phrased as it was in 2014 —
+       "has advantage on an attack roll" rather than "has Advantage". */
+    const [best] = [...group.wordings.values()]
+      .sort((a, b) => Number(b.current) - Number(a.current) || b.count - a.count);
     return {
       id: slug(plainName(best.name)),
       name: best.name,
@@ -420,14 +452,43 @@ function traitCatalogue(monsters) {
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function load() {
-  if (existsSync(CACHE)) return JSON.parse(await readFile(CACHE, 'utf8'));
-  const res = await fetch(SOURCE);
-  if (!res.ok) throw new Error(`${SOURCE} returned ${res.status}`);
+async function fetchCached(file) {
+  const path = join(CACHE, file);
+  if (existsSync(path)) return JSON.parse(await readFile(path, 'utf8'));
+  const res = await fetch(`${REMOTE}/${file}`);
+  if (!res.ok) throw new Error(`${file} returned ${res.status}`);
   const text = await res.text();
-  await mkdir(dirname(CACHE), { recursive: true });
-  await writeFile(CACHE, text);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, text);
   return JSON.parse(text);
+}
+
+/**
+ * Every creature in print, minus the ones printed again somewhere later.
+ *
+ * `reprintedAs` is the data's own record of that, which is worth far more
+ * than matching names would be: it knows that the 2014 Goblin became the
+ * Goblin Warrior, and that a handful of creatures in books otherwise wholly
+ * reprinted were not carried over.
+ *
+ * Copies are resolved against the whole corpus rather than the keepers,
+ * because a variant often descends from an entry that was itself reprinted.
+ */
+async function load() {
+  const index = await fetchCached('index.json');
+  const files = [...new Set(Object.values(index))];
+  const all = [];
+  for (const file of files) {
+    const data = await fetchCached(file);
+    for (const m of data.monster ?? []) all.push(m);
+  }
+
+  const byKey = indexBy(all);
+  const notes = [];
+  const kept = all
+    .filter((m) => !m.reprintedAs)
+    .map((m) => resolveCopy(m, byKey, notes));
+  return { monsters: kept, printed: all.length, notes };
 }
 
 const HEADER = `/* Generated by tools/build-bestiary.mjs — do not edit by hand.
@@ -475,9 +536,9 @@ function seal(plaintext, password) {
 async function main() {
   const report = [];
   const raw = await load();
-  const monsters = raw.monster
+  const monsters = raw.monsters
     .map((m) => convert(m, report))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source));
 
   const traits = traitCatalogue(monsters);
 
@@ -490,6 +551,13 @@ async function main() {
     ...traits.map((t) => `  ${literal(t)},`),
     `];\n`,
   ].join('\n'));
+
+  /* Nothing may leave here as null or NaN: the app's types say these are
+     numbers, and a hole would only turn up as a broken block much later. */
+  const holes = monsters.filter((m) => /:(null|NaN)/.test(JSON.stringify(m)));
+  if (holes.length) {
+    throw new Error(`${holes.length} creatures have a hole in them, starting with ${holes[0].name}`);
+  }
 
   const packed = monsters.map((m) => ({ ...m, block: prune(m.block, DEFAULT_BLOCK) }));
   const open = packed.filter((m) => m.srd);
@@ -522,6 +590,8 @@ async function main() {
     `/** Creatures behind the password. Saying how many costs nothing; saying`,
     `    which would mean shipping them. */`,
     `export const SEALED_COUNT = ${sealed.length};\n`,
+    `/** Traits in the catalogue, so a heading can say so before they arrive. */`,
+    `export const TRAIT_COUNT = ${traits.length};\n`,
   ].join('\n'));
 
   const password = process.env['BESTIARY_PASSWORD'];
@@ -548,7 +618,17 @@ async function main() {
     `};\n`,
   ].join('\n'));
 
-  console.log(`${monsters.length} monsters, ${traits.length} distinct traits`);
+  console.log(`${raw.printed} creatures in print, ${monsters.length} once the reprints are dropped`);
+  console.log(`${traits.length} distinct traits`);
+  if (raw.notes.length) {
+    const kinds = new Map();
+    for (const n of raw.notes) {
+      const kind = n.replace(/^[^:]+: /, '').replace(/"[^"]*"/, 'something');
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+    }
+    console.log(`\n${raw.notes.length} creatures not fully resolved:`);
+    for (const [kind, n] of [...kinds].sort((a, b) => b[1] - a[1])) console.log(`  ${n} ${kind}`);
+  }
   console.log(`  ${open.length} in the reference document, open to everyone`);
   console.log(`  ${sealed.length} sealed behind the password`);
   if (report.length) {

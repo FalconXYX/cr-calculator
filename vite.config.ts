@@ -11,11 +11,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    /* The Monster Manual catalogue is a chunk of its own on purpose, and it
-       is a little over 600 kB of stat blocks. Nothing fetches it until
-       someone opens the picker, so the default 500 kB warning only fires on
-       the one chunk that is meant to be big. Set just above it, so a
-       catalogue that grows a great deal still says so. */
-    chunkSizeWarningLimit: 700,
+    /* Three chunks here are big on purpose and none of them is fetched until
+       something wants it: the traits, the creatures anyone may have, and the
+       sealed ones, which are a megabyte of ciphertext and go only to somebody
+       who has typed the password. The default 500 kB warning would fire on
+       all three and say nothing useful; this is set just above the largest,
+       so a catalogue that grows a great deal still says so. */
+    chunkSizeWarningLimit: 1600,
   },
 });
