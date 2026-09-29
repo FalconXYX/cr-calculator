@@ -289,6 +289,8 @@ interface CatalogPickerProps {
   /** Left out where the picker is the whole point of the section it is in. */
   onClose?: () => void;
   note?: string;
+  /** An optional switch above the list, for widening what it searches. */
+  toggle?: { label: string; on: boolean; onChange: (on: boolean) => void };
 }
 
 /**
@@ -298,7 +300,7 @@ interface CatalogPickerProps {
  * hundreds is past the point where scrolling a select is any use at all, so
  * this is a box you type in and a list of what matched.
  */
-export function CatalogPicker({ placeholder, search, onPick, onClose, note }: CatalogPickerProps) {
+export function CatalogPicker({ placeholder, search, onPick, onClose, note, toggle }: CatalogPickerProps) {
   const [query, setQuery] = useState('');
   const results = search ? search(query) : [];
 
@@ -317,7 +319,17 @@ export function CatalogPicker({ placeholder, search, onPick, onClose, note }: Ca
         {onClose && <button type="button" className="mini" onClick={onClose}>Close</button>}
       </div>
       {note && <p className="mm-note">{note}</p>}
-      {!search && <p className="mm-note">Fetching the catalogue…</p>}
+      {toggle && (
+        <label className="mm-check mm-catalog-toggle">
+          <input
+            type="checkbox"
+            checked={toggle.on}
+            onChange={(e) => toggle.onChange(e.target.checked)}
+          />
+          {toggle.label}
+        </label>
+      )}
+      {!search && <Progress label="Fetching the catalogue" />}
       {search && !results.length && (
         <p className="mm-note">Nothing matches “{query}”.</p>
       )}
@@ -334,6 +346,38 @@ export function CatalogPicker({ placeholder, search, onPick, onClose, note }: Ca
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ---------------- Progress ---------------- */
+
+/**
+ * A bar, and nothing else.
+ *
+ * What a task is doing at each moment is the task's business. "Loading
+ * language traineddata 42%" tells somebody waiting for their stat block
+ * nothing they can act on, and reads as the machine talking about itself.
+ * How far along it is, they can act on: they know whether to wait.
+ *
+ * Leave `value` out for work whose length is not known, and the bar paces
+ * instead of filling.
+ */
+export function Progress({ value, label }: { value?: number; label: string }) {
+  const known = typeof value === 'number';
+  return (
+    <div
+      className="mm-progress"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={known ? 0 : undefined}
+      aria-valuemax={known ? 100 : undefined}
+      aria-valuenow={known ? Math.round(value * 100) : undefined}
+    >
+      <div
+        className={`mm-progress-fill${known ? '' : ' waiting'}`}
+        style={known ? { width: `${Math.round(value * 100)}%` } : undefined}
+      />
     </div>
   );
 }

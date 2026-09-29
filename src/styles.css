@@ -624,8 +624,8 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mm-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 .beta {
-  padding: 1px 5px;
-  border-radius: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
   background: var(--highlight);
   color: var(--highlight-fg);
   font-family: var(--sans);
@@ -639,50 +639,78 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 .mm-body[hidden] { display: none; }
 
-/* Options on the left, the block they build on the right. Each side scrolls
-   on its own so a long list of actions never pushes the block off screen. */
+/* Options on the left, the block they build on the right. */
 .mm-panes {
   display: grid;
-  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 408px) minmax(0, 1fr);
   min-height: 0;
 }
-/* No `overscroll-behavior: contain` here, unlike the trait list. These panes
-   fill the screen, so once one reaches its end the wheel should carry on and
-   move the page — containing it just makes the window feel stuck. */
-.mm-editor, .mm-preview {
+
+/* The preview does not scroll. A box that scrolls inside a page that also
+   scrolls takes the wheel the moment the pointer crosses into it, and reading
+   a long block turned into an argument over which thing was moving. It is now
+   as tall as the block is and the page carries it.
+
+   The form still has a scroll, but only as a last resort. It rides at the top
+   of the window so it stays reachable however far down the block you are, and
+   while it fits on screen — nearly always, since the sections start shut —
+   nothing inside it scrolls either. `align-self: start` is what allows it to
+   be shorter than the row; without it a grid item stretches and there is
+   nothing to stick. The divider moves to the preview's edge so that it still
+   runs the full height once the editor no longer does. */
+.mm-editor {
+  align-self: start;
+  position: sticky;
+  top: 9px;
   min-width: 0;
-  max-height: clamp(400px, calc(100vh - 210px), 680px);
+  max-height: calc(100vh - 18px);
   overflow-y: auto;
 }
-.mm-editor { border-right: 1px solid var(--line); }
-.mm-preview { padding: 13px; background: var(--alt); }
-.mm-tools { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; max-width: 720px; }
-.mm-tools .mm-note { margin: 0; }
+.mm-preview {
+  min-width: 0;
+  padding: 16px;
+  border-left: 1px solid var(--line);
+  background: var(--alt);
+}
 
-/* Open, it takes the window the same way the calculator does — you scroll to
-   it and it is the whole screen, which is what lets the text be legible
-   rather than a miniature of the calculator's density.
-
-   Only once the panes are side by side: stacking two full-height panes inside
-   one screen would leave neither of them usable.
-
-   `grid-template-rows: minmax(0, 1fr)` is load-bearing. A grid's default auto
-   row GROWS past a container with a definite height, so opening a long
-   section pushed the pane past the panel and `.panel { overflow: clip }` ate
-   the rest — the bottom of the section was simply unreachable. Capping the
-   row and letting the panes shrink below their content is what hands the
-   overflow to `overflow-y: auto` instead. */
-@media (min-width: 861px) {
-  .app > .monster.open {
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 18px);
-    min-height: 480px;
-  }
-  .app > .monster.open > .mm-body { flex: 1 1 auto; min-height: 0; }
-  .app > .monster.open .mm-panes { height: 100%; grid-template-rows: minmax(0, 1fr); }
-  .app > .monster.open .mm-editor,
-  .app > .monster.open .mm-preview { max-height: none; height: auto; min-height: 0; }
+/* A scrollbar that keeps out of the way. Two things are wrong with the one
+   the browser gives you here: it is drawn over the controls on a pane this
+   narrow, and it does not fade. Declaring the WebKit pseudo-element is what
+   takes it out of overlay mode and gives it a lane beside the content instead
+   of on top of it, and a transparent thumb until the pointer is in the pane
+   is what makes it disappear when nobody is using it. */
+.mm-editor, .mm-catalog-list {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.mm-editor:hover, .mm-editor:focus-within,
+.mm-catalog-list:hover, .mm-catalog-list:focus-within {
+  scrollbar-color: var(--line-soft) transparent;
+}
+.mm-editor::-webkit-scrollbar,
+.mm-catalog-list::-webkit-scrollbar { width: 11px; }
+.mm-editor::-webkit-scrollbar-track,
+.mm-catalog-list::-webkit-scrollbar-track { background: transparent; }
+/* The border is padding in disguise: `background-clip: content-box` keeps the
+   paint inside it, which is what makes an 11px lane hold a 5px bar. */
+.mm-editor::-webkit-scrollbar-thumb,
+.mm-catalog-list::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  background-clip: content-box;
+}
+.mm-editor:hover::-webkit-scrollbar-thumb,
+.mm-editor:focus-within::-webkit-scrollbar-thumb,
+.mm-catalog-list:hover::-webkit-scrollbar-thumb,
+.mm-catalog-list:focus-within::-webkit-scrollbar-thumb {
+  background: var(--line);
+  background-clip: content-box;
+}
+.mm-editor::-webkit-scrollbar-thumb:hover,
+.mm-catalog-list::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: content-box;
 }
 
 /* ---- Accordion ---- */
@@ -690,7 +718,7 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mm-sec-head {
   display: flex; align-items: center; gap: 9px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 9px 13px;
   border: 0;
   border-bottom: 1px solid var(--line-soft);
   background: transparent;
@@ -731,8 +759,8 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mm-sec-body {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 11px 10px;
+  gap: 13px;
+  padding: 15px 14px;
   background: var(--alt);
   border-bottom: 1px solid var(--line);
 }
@@ -741,18 +769,22 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 /* ---- Fields ---- */
 
-.mm-field { display: flex; align-items: center; gap: 8px; min-height: 30px; }
-.mm-label { flex: none; width: 96px; font-size: 13px; color: var(--muted); }
+.mm-field { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.mm-label { flex: none; width: 100px; font-size: 13px; color: var(--muted); }
 .mm-field select { flex: 1; min-width: 0; }
 .mm-suffix { font-size: 12px; color: var(--muted); }
 .mm-num { flex: none; width: 68px; }
-.monster input[type="number"], .monster select { font-size: 14px; padding: 4px 6px; }
+.monster input[type="number"], .monster select {
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 14px;
+}
 
 .mm-text {
   flex: 1; min-width: 0;
-  padding: 4px 7px;
+  padding: 6px 9px;
   border: 1px solid var(--field-edge);
-  border-radius: 2px;
+  border-radius: 5px;
   background: var(--field);
   color: var(--text);
   font-family: var(--serif);
@@ -762,9 +794,9 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mm-textarea {
   display: block;
   width: 100%;
-  padding: 6px 7px;
+  padding: 8px 9px;
   border: 1px solid var(--field-edge);
-  border-radius: 2px;
+  border-radius: 5px;
   background: var(--field);
   color: var(--text);
   font-family: var(--serif);
@@ -777,28 +809,68 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   outline-offset: 1px;
 }
 
-.mm-check { display: flex; align-items: center; gap: 7px; min-height: 28px; font-size: 14px; cursor: pointer; }
+.mm-check { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 14px; cursor: pointer; }
 .mm-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 
 .mm-note { margin: 5px 0; font-size: 12.5px; line-height: 1.4; font-style: italic; color: var(--muted); }
 .mm-note b { font-style: normal; color: var(--text); }
 
-.mm-ability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; }
-.mm-ability { display: flex; align-items: center; gap: 4px; }
+.mm-ability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.mm-ability { display: flex; align-items: center; gap: 6px; }
 .mm-ability .mm-label { width: 36px; font-family: var(--sans); font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
 .mm-mod { font-family: var(--mono); font-size: 13px; color: var(--muted); }
 
-.mm-readout { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; align-items: baseline; }
+.mm-readout { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: baseline; }
 .mm-readout span { font-size: 13px; color: var(--muted); }
 .mm-readout b { font-family: var(--mono); font-size: 15px; }
 
+/* ---- Progress ---- */
+
+/* The calculator's trait list is a fixed-height pane, so the bar stands in
+   the space the line of text used to take rather than adding to it. */
+.trait-waiting { display: flex; align-items: center; min-height: 22px; padding: 0 2px; }
+
+/* Deliberately small. This is a thing to glance at and ignore, not a thing to
+   read, and it goes where a line of running commentary used to be. */
+.mm-progress {
+  overflow: hidden;
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line-soft);
+}
+.mm-progress-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-solid);
+  transition: width .18s ease;
+}
+/* Work whose length nobody knows. It paces rather than fills, because a bar
+   that sits at a made-up percentage is worse than one that admits it. */
+.mm-progress-fill.waiting {
+  width: 35%;
+  animation: mm-pace 1.15s ease-in-out infinite;
+}
+@keyframes mm-pace {
+  0% { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-progress-fill { transition: none; }
+  .mm-progress-fill.waiting { margin-left: 0; width: 100%; opacity: .45; animation: none; }
+}
+
 /* ---- Chips ---- */
 
-.mm-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.mm-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+/* Fully round. A chip is a word you switch on, not a key on a keyboard, and
+   the pill shape is what stops a wrapped row of them reading as brickwork. */
 .chip {
-  padding: 5px 11px;
+  padding: 5px 13px;
   border: 1px solid var(--field-edge);
-  border-radius: 3px;
+  border-radius: 999px;
   background: var(--field);
   color: var(--text);
   font-family: var(--sans);
@@ -819,16 +891,16 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   box-shadow: inset 0 0 0 2px var(--highlight);
 }
 .chip.custom { background: var(--result-solid); border-color: var(--result-solid); }
-.mm-chip-add { display: flex; gap: 3px; flex: 1 1 120px; min-width: 120px; }
-.mm-chip-add .mm-text { font-size: 13px; padding: 3px 6px; }
+.mm-chip-add { display: flex; gap: 5px; flex: 1 1 140px; min-width: 140px; }
+.mm-chip-add .mm-text { font-size: 13px; padding: 4px 9px; border-radius: 999px; }
 
 /* Yellow is the palette's "look at this one thing", which is exactly what a
    warning is. It never blocks the choice, so it stays a note rather than an
    error colour. */
 .mm-warn {
-  padding: 8px 10px;
+  padding: 10px 13px;
   border-left: 3px solid var(--highlight);
-  border-radius: 2px;
+  border-radius: 0 6px 6px 0;
   background: var(--panel);
   font-size: 12.5px;
   line-height: 1.45;
@@ -839,38 +911,87 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 /* ---- Entries ---- */
 
-.mm-entries { display: flex; flex-direction: column; gap: 7px; }
-.mm-entry { padding: 6px; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--panel); }
-.mm-entry-top { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; }
-.monster .mini { font-size: 12.5px; padding: 3px 9px; }
-.mm-entry-controls { display: flex; gap: 5px; margin-bottom: 5px; }
+.mm-entries { display: flex; flex-direction: column; gap: 10px; }
+.mm-entry { padding: 10px 11px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--panel); }
+.mm-entry-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+/* The calculator fits a hundred controls on one screen, so its buttons are
+   cut down to make room. This tool has one job and a whole page to do it in,
+   and does not inherit that bargain: rounder, roomier, and a border that
+   stays quiet until the pointer is on it. */
+.monster .mini {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.monster .mini:hover:not(:disabled) { background: var(--alt); }
+.mm-entry-controls { display: flex; gap: 6px; margin-bottom: 8px; }
 .mm-entry-controls select { flex: 1 1 0; min-width: 0; }
 .mm-entry-name { font-weight: 700; }
 .mini.danger:hover:not(:disabled) { border-color: var(--result); color: var(--result); }
-.mm-add { align-self: flex-start; margin-top: 1px; }
+.mm-add { align-self: flex-start; margin-top: 2px; }
+
+/* A file input that reads as a button, since the real one is unstyleable. */
+.mm-pick { position: relative; overflow: hidden; display: inline-block; }
+.mm-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* ---- What was read out of pasted text ---- */
+
+/* Three short columns rather than one long list: what was read, what did not
+   add up, and what was missing are different questions, and the middle one is
+   the one worth looking at before pressing the button. */
+.mm-parse {
+  display: grid;
+  gap: 10px;
+  margin: 2px 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--alt);
+}
+.mm-parse-col h4 {
+  margin: 0 0 2px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--accent);
+}
+.mm-parse-col.unsure h4 { color: var(--result); }
+.mm-parse-col.missing h4 { color: var(--muted); }
+.mm-parse-col ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mm-parse-col li + li { margin-top: 4px; }
 
 /* ---- Catalogue ---- */
 
 .mm-catalog {
-  margin: 5px 0;
-  padding: 6px;
+  margin: 2px 0;
+  padding: 10px;
   border: 1px solid var(--line-soft);
-  border-radius: 2px;
+  border-radius: 7px;
   background: var(--alt);
 }
-.mm-catalog-top { display: flex; align-items: center; gap: 5px; }
+.mm-catalog-top { display: flex; align-items: center; gap: 6px; }
 /* input[type="search"] is set to `flex: none; width: 100%` further up, which
    outranks .mm-text on its own and pushes the close button off the edge. */
 .mm-catalog-top .mm-text { flex: 1 1 0; width: auto; min-width: 0; }
 .mm-catalog-top .mini { flex: none; }
-.mm-catalog > .mm-note { margin: 5px 0 0; }
+.mm-catalog > .mm-note { margin: 7px 0 0; }
+.mm-catalog-toggle { margin-top: 5px; font-size: 13px; color: var(--muted); }
 
 /* Capped rather than free-running. The list sits in a pane that already
    scrolls, and five hundred creature names in one column would push the rest
    of the editor a long way off the bottom of it. No overscroll-behavior here:
    a wheel that reaches the end of this list should carry on and move the pane
    behind it, which is what containment would stop. */
-.mm-catalog-list { max-height: 260px; overflow-y: auto; margin-top: 5px; }
+.mm-catalog-list { max-height: 280px; overflow-y: auto; margin-top: 7px; }
 .mm-catalog-list:empty { margin-top: 0; }
 
 .mm-catalog-row {
@@ -878,7 +999,7 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   align-items: baseline;
   gap: 8px;
   width: 100%;
-  padding: 4px 6px;
+  padding: 6px 8px;
   border: 0;
   border-bottom: 1px solid var(--line-soft);
   border-radius: 0;
@@ -979,11 +1100,52 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .sb.cols-2 .sb-name,
 .sb.cols-2 .sb-head { break-after: avoid; break-inside: avoid; }
 
+/* ---- Preview toolbar ---- */
+
+/* These are the only buttons in the app that carry a two-word label, and they
+   are not the calculator's — the preview pane has room, so they get it. Sized
+   after `.monster .mini` deliberately: that rule is the editor's density, and
+   the two selectors weigh the same, so this one has to come later to win.
+
+   `flex: none` is what fixes the reported mess. Flex items shrink by default,
+   so inside a capped row seven buttons squashed below their own text and every
+   label broke in half — "Copy / Markdown", "Save / PNG". They now hold their
+   width and wrap to a second row instead, which is the honest thing to do
+   when the pane is narrow. */
+/* Not pinned. Held at the top of the window it covered the head of the block
+   on the way down, which is the part worth reading — a row of buttons is not
+   worth a permanent bite out of the page.
+
+   `flex-wrap` is a safety valve rather than a layout: the labels are cut short
+   enough to hold one line on any normal window, and wrapping is what happens
+   instead of a scrollbar or a clipped button if one turns out to be narrower
+   than that. */
+.mm-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.mm-tools .mini {
+  flex: none;
+  margin-right: 0;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* The column choice is a view, not an export. Holding it at the far end keeps
+   that difference visible without a rule or a label. */
+.mm-tools .mm-cols { margin-left: auto; }
+/* A clipboard failure gets its own line rather than a gap wherever it lands. */
+.mm-tools .mm-note { flex: 1 1 100%; margin: 0; }
+
 /* One control, two states, so they read as a pair rather than two buttons. */
 .mm-cols { display: inline-flex; }
 .mm-cols .mini { margin-right: 0; border-radius: 0; }
-.mm-cols .mini:first-child { border-radius: 2px 0 0 2px; }
-.mm-cols .mini:last-child { border-radius: 0 2px 2px 0; margin-left: -1px; }
+.mm-cols .mini:first-child { border-radius: 7px 0 0 7px; }
+.mm-cols .mini:last-child { border-radius: 0 7px 7px 0; margin-left: -1px; }
 .mini.on,
 .mini.on:hover:not(:disabled) {
   background: var(--accent-solid);
@@ -993,8 +1155,9 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 
 @media (max-width: 860px) {
   .mm-panes { grid-template-columns: minmax(0, 1fr); }
-  .mm-editor { border-right: 0; border-bottom: 1px solid var(--line); }
-  .mm-editor, .mm-preview { max-height: none; }
+  /* Stacked, a sticky form would sit on top of the block it is editing. */
+  .mm-editor { position: static; max-height: none; }
+  .mm-preview { border-left: 0; border-top: 1px solid var(--line); }
 }
 
 /* ---------------- Responsive ---------------- */

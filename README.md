@@ -21,6 +21,9 @@ React + TypeScript, built with Vite.
 
 The **Monster Maker** below it writes a stat block and scores it:
 
+- **Paste a Stat Block** reads one out of text from anywhere — Homebrewery,
+  D&D Beyond, a document — or off a screenshot dropped onto it, and scores it
+  in the calculator above.
 - **Start From a Monster** loads a published creature into the editor, to
   take apart and change. Renaming it offers to rename what the prose calls
   it, too — a winter wolf made into an inferno drake stops calling itself
@@ -146,6 +149,58 @@ rating for 85%** of creatures, which `npm test` asserts a floor for. It is not
 a claim that the DMG procedure agrees with the designers — it does not, and
 2024 dragons come out low however carefully they are read — but a change that
 makes the reading worse shows up there.
+
+## Reading a block back in
+
+`src/lib/parseStatBlock.ts` turns pasted text into a stat block. The text
+comes from anywhere, so the first thing that happens is the dressing comes
+off — Homebrewery's blockquote gutter, markdown bold, table pipes and rules —
+and what is left is read with patterns loose enough to cope with the rest.
+
+Three things it has to get right that are not obvious:
+
+- **Ability scores are laid out two ways.** Most blocks put the score beside
+  its name; a table puts all six names on one row and all six scores on the
+  next, where "the first number after STR" is the Strength of nothing at all.
+  Each cell also states the modifier it implies — `18 (+4)` — so the bracket
+  comes off before any number is taken.
+- **A heading does not always get a line to itself.** Homebrewery writes
+  `### Actions` hard against the trait above it. Left alone, the heading is
+  swallowed into that trait's text and every action below stays filed as a
+  trait.
+- **Optical recognition returns no blank lines at all.** A whole action list
+  arrives as one paragraph with a wrapped sentence broken across two lines. So
+  entries are found line by line, and what tells an entry from a clause is the
+  full stop: a block names its entries `Multiattack.` but writes their parts
+  `Hit:` and `Failure:`.
+
+Nothing is guessed quietly. What cannot be found is reported missing, and what
+fails a cross-check — hit points that disagree with their own hit dice, an
+attack bonus those ability scores cannot reach — is reported doubtful. The
+block lands in the editor for correcting, and a wrong number that says nothing
+is worse than a gap that does.
+
+**How well it works.** Every creature in the catalogue is written out as text
+and read back in, in both formats the app exports, and the two are scored
+against each other: **99% come back on the same challenge rating**, and armour
+class and hit points come back exactly every time. That is 3,772 blocks the
+parser was never tuned against, and `npm test` holds it to 95%.
+
+## Reading a picture
+
+`src/lib/ocr.ts` wraps [Tesseract](https://tesseract.projectnaptha.com/) and
+hands what it finds to the same reader. Paste a screenshot, drop one, or pick
+a file.
+
+The pictures this is for are screenshots rather than photographs of a book,
+which is the case optical recognition is good at: clean pixels at a known
+size, with none of the perspective, shadow or page curl that make a photograph
+hard. A rendered block goes through in about two seconds and comes back
+essentially perfect — what needed work was not the recognition but the shape
+it returns, which is the third point above.
+
+The recogniser and its training data are several megabytes and are fetched
+from a CDN the first time somebody uses it, never before.
 
 ## Going back out as 5etools
 

@@ -21,6 +21,7 @@ import {
   UNUSUAL_DAMAGE_IMMUNITIES,
   UNUSUAL_RESISTANCES,
   abilityMod,
+  defaultStatBlock,
   derive,
   sign,
   unusualPicks,
@@ -44,6 +45,12 @@ import {
   renameThroughout,
   selfNameFor,
 } from "../../lib/rename.ts";
+import {
+  looksLikeStatBlock,
+  parseStatBlock,
+} from "../../lib/parseStatBlock.ts";
+import type { ParseReport } from "../../lib/parseStatBlock.ts";
+import { imageFrom, readImage, warmUp } from "../../lib/ocr.ts";
 import { StatBlockPreview } from "./StatBlockPreview.tsx";
 import {
   CatalogPicker,
@@ -51,6 +58,7 @@ import {
   ChipPicker,
   EntryList,
   NumField,
+  Progress,
   Section,
   SelectField,
   TextField,
@@ -59,6 +67,7 @@ import {
 } from "./EditorBits.tsx";
 import type { CatalogOption, EntryCatalog, TierRow } from "./EditorBits.tsx";
 import {
+  fromMonsterBook,
   loadTemplates,
   loadTraits,
   searchTemplates,
@@ -155,17 +164,126 @@ function useTraits(wanted: boolean): readonly CatalogTrait[] | null {
   return list;
 }
 
+/** What the reader made of some pasted text, laid out for reading. */
+function ParseSummary({ report }: { report: ParseReport }) {
+  const column = (title: string, lines: string[], tone?: string) =>
+    (lines.length ? (
+      <div className={`mm-parse-col${tone ? ` ${tone}` : ""}`}>
+        <h4>{title}</h4>
+        <ul>
+          {lines.map((l, i) => (
+            <li key={i}>{l}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null);
+
+  return (
+    <div className="mm-parse">
+      {column("Read", report.took)}
+      {column("Does not add up", report.unsure, "unsure")}
+      {column("Not found", report.missing, "missing")}
+    </div>
+  );
+}
+
 interface Props {
   sb: StatBlock;
   onChange: (next: StatBlock) => void;
+  /** Scores a block straight away, without waiting for state to catch up. */
+  onScore: (block: StatBlock) => void;
   row: CrRow;
 }
 
-export function MonsterMakerBody({ sb, onChange, row }: Props) {
+export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const toggle = (id: string) => setOpen((cur) => (cur === id ? null : id));
 
   const d = useMemo(() => derive(sb, row), [sb, row]);
+
+  /* Pasting is the common way in for a homebrew block: it is read, shown, and
+     only put into the editor once somebody has looked at what was read. */
+  const [pasted, setPasted] = useState("");
+
+  /* A picture goes the same way, once the words are off it. How far along it
+     is, and separately whether it went wrong — a failure is worth words, a
+     bar in flight is not. */
+  const [reading, setReading] = useState<number | null>(null);
+  const [readFailed, setReadFailed] = useState<string | null>(null);
+  const readPicture = useCallback((file: Blob | null) => {
+    if (!file) return;
+    setReadFailed(null);
+    setReading(0);
+    void readImage(file, setReading)
+      .then((text) => setPasted(text))
+      .catch((e: unknown) =>
+        setReadFailed(
+          e instanceof Error ? e.message : "The picture could not be read.",
+        ),
+      )
+      .finally(() => setReading(null));
+  }, []);
+  /* Straight off the clipboard, without the detour through the box.
+     Pasting into a textarea to get at what you already copied is a step that
+     only makes sense once you know the box is there, and the picture case is
+     worse — there is nothing about a text box that says you may drop an image
+     on it. One button takes whichever of the two is on the clipboard.
+
+     Reading the clipboard is a privilege the browser may refuse, so the
+     failure has to be a real sentence: it is the one case where somebody has
+     to be told to do it the other way. */
+  const pasteFromClipboard = useCallback(async () => {
+    setReadFailed(null);
+    try {
+      const items = await navigator.clipboard.read();
+      /* A picture beats text. Copying a stat block image often puts a URL or
+         a filename on the clipboard beside it, and the picture is the thing
+         that was meant. */
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) {
+          readPicture(await item.getType(type));
+          return;
+        }
+      }
+      for (const item of items) {
+        if (item.types.includes("text/plain")) {
+          const text = await (await item.getType("text/plain")).text();
+          if (text.trim()) {
+            setPasted(text);
+            return;
+          }
+        }
+      }
+      setReadFailed("There is nothing on the clipboard to read.");
+    } catch {
+      /* Firefox has no clipboard.read at all, and every browser refuses it
+         without permission. Falling back to text alone is worth a try before
+         giving up, since readText is allowed in more places. */
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text.trim()) {
+          setPasted(text);
+          return;
+        }
+        setReadFailed("There is nothing on the clipboard to read.");
+      } catch {
+        setReadFailed(
+          "This browser will not let the page read your clipboard. Paste into the box above instead.",
+        );
+      }
+    }
+  }, [readPicture]);
+
+  const parsed = useMemo(
+    () => (looksLikeStatBlock(pasted) ? parseStatBlock(pasted) : null),
+    [pasted],
+  );
+  const readPasted = useCallback(() => {
+    if (!parsed) return;
+    onChange(parsed.block);
+    onScore(parsed.block);
+  }, [parsed, onChange, onScore]);
 
   const templates = useTemplates(open === "template");
   const traits = useTraits(open === "traits");
@@ -190,11 +308,51 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
     previous: StatBlock;
   } | null>(null);
 
+  /* Clearing throws the whole block away, so it holds on to what it threw.
+     One press to clear and one to change your mind reads better than a
+     confirm box, which asks the question before you know the answer.
+
+     The undo shows only while the editor still holds the exact object that
+     Clear put there. Identity is the test, not a comparison: every edit makes
+     a new block, so the offer withdraws itself the moment you start typing
+     rather than sitting there stale. */
+  const [cleared, setCleared] = useState<{
+    previous: StatBlock;
+    blank: StatBlock;
+  } | null>(null);
+  const clearAll = useCallback(() => {
+    const blank = defaultStatBlock();
+    setCleared({ previous: sb, blank });
+    setReplaced(null);
+    onChange(blank);
+  }, [sb, onChange]);
+  const undoClear = useCallback(() => {
+    if (cleared) onChange(cleared.previous);
+    setCleared(null);
+  }, [cleared, onChange]);
+
+  /* Adventures are two thirds of the catalogue and the worse two thirds to
+     search: their bestiaries are largely renamed stock monsters and one-off
+     NPCs. Off unless asked for, and the switch says how many are behind it so
+     nobody has to wonder whether the list is broken. */
+  const [adventures, setAdventures] = useState(false);
+  const [pool, hidden] = useMemo(() => {
+    if (!templates) return [null, 0] as const;
+    const books = templates.filter(fromMonsterBook);
+    return [adventures ? templates : books, templates.length - books.length] as const;
+  }, [templates, adventures]);
+
   const pickTemplate = (option: CatalogOption) => {
-    const t = templates?.find((x) => x.id === option.id);
+    const t = pool?.find((x) => x.id === option.id);
     if (!t) return;
+    const block = templateBlock(t);
     setReplaced({ name: t.name, cr: t.cr, previous: sb });
-    onChange(templateBlock(t));
+    onChange(block);
+    /* Scored on the way in, the same as a pasted block. Without this the
+       calculator stays wherever it was and the preview goes on printing that
+       stale rating on the Challenge line — so a creature published at CR 8
+       would load and announce itself as CR 0. */
+    onScore(block);
   };
 
   /* "Copied" is a transient label on the button that pressed it. The timer is
@@ -353,6 +511,89 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
   return (
     <div className="mm-panes">
       <div className="mm-editor">
+        <Section {...sec("paste", "Paste a Stat Block")}>
+          <p className="mm-note">
+            From Homebrewery, D&amp;D Beyond, a document, a screenshot —
+            anywhere. Copy it and press <b>Paste stat block</b>, or use the box
+            below. It is read into the editor and scored in the calculator
+            above.
+          </p>
+          <textarea
+            className="mm-textarea"
+            rows={5}
+            value={pasted}
+            placeholder="Paste a stat block here, or drop a screenshot of one…"
+            aria-label="Stat block text"
+            onChange={(e) => setPasted(e.target.value)}
+            onPaste={(e) => {
+              const image = imageFrom(e.clipboardData);
+              if (image) {
+                e.preventDefault();
+                readPicture(image);
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              /* Fetch the recogniser while the file is still in the air. It
+                 is several megabytes and the drop is the first moment we
+                 know it will be wanted. */
+              warmUp();
+            }}
+            onDrop={(e) => {
+              const image = imageFrom(e.dataTransfer);
+              if (image) {
+                e.preventDefault();
+                readPicture(image);
+              }
+            }}
+          />
+          <div className="mm-tools">
+            <button
+              type="button"
+              className="mini"
+              onClick={() => void pasteFromClipboard()}
+            >
+              Paste stat block
+            </button>
+            <label className="mini mm-pick" onPointerDown={warmUp}>
+              Upload stat block image
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  readPicture(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {reading !== null && (
+              <Progress value={reading} label="Reading the picture" />
+            )}
+          </div>
+          {readFailed && <p className="mm-note">{readFailed}</p>}
+          {pasted.trim() && !parsed && (
+            <p className="mm-note">
+              That does not read like a stat block. It wants at least an armour
+              class, hit points or an ability line to go on.
+            </p>
+          )}
+          {parsed && (
+            <>
+              <ParseSummary report={parsed.report} />
+              <button type="button" className="mini" onClick={readPasted}>
+                Use {parsed.block.name || "it"}
+              </button>{" "}
+              <button
+                type="button"
+                className="mini"
+                onClick={() => setPasted("")}
+              >
+                Clear
+              </button>
+            </>
+          )}
+        </Section>
+
         <Section {...sec("template", "Start From a Monster")}>
           <p className="mm-note">
             Loading a creature replaces what is in the editor, so this is
@@ -362,8 +603,8 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
           {replaced && (
             <p className="mm-note">
               Loaded <b>{replaced.name}</b>, published at CR {replaced.cr}.
-              Press <b>Vibe Check CR</b> in the calculator to see what this
-              build makes of it.{" "}
+              The Challenge line below is what this calculator makes of it,
+              not what the book says — the two are allowed to disagree.{" "}
               <button
                 type="button"
                 className="mini"
@@ -378,10 +619,18 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
           )}
           <CatalogPicker
             placeholder="Search creatures…"
+            note={
+              pool
+                ? `${pool.length} creatures from the monster books, the core rules and the setting books.`
+                : ""
+            }
+            toggle={{
+              label: `Include adventures (${hidden} more)`,
+              on: adventures,
+              onChange: setAdventures,
+            }}
             search={
-              templates
-                ? (q) => searchTemplates(templates, q).map(templateOption)
-                : null
+              pool ? (q) => searchTemplates(pool, q).map(templateOption) : null
             }
             onPick={pickTemplate}
           />
@@ -803,10 +1052,10 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
             Save PNG
           </button>
           <button type="button" className="mini" onClick={downloadRoll20}>
-            Roll20 JSON
+            Roll20
           </button>
           <button type="button" className="mini" onClick={downloadFiveTools}>
-            5eTools JSON
+            5eTools
           </button>
           <div className="mm-cols" role="group" aria-label="Columns">
             {([1, 2] as const).map((n) => (
@@ -821,6 +1070,17 @@ export function MonsterMakerBody({ sb, onChange, row }: Props) {
               </button>
             ))}
           </div>
+          <button type="button" className="mini danger" onClick={clearAll}>
+            Clear
+          </button>
+          {cleared && sb === cleared.blank && (
+            <span className="mm-note">
+              Cleared.{" "}
+              <button type="button" className="mini" onClick={undoClear}>
+                Put back {cleared.previous.name || "the old one"}
+              </button>
+            </span>
+          )}
           {copied === "fail" && (
             <span className="mm-note">Clipboard blocked by the browser.</span>
           )}

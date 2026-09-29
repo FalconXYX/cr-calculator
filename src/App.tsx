@@ -173,8 +173,10 @@ export default function App() {
      of what it could and could not work out goes in the space under Offensive
      CR — anywhere above the panes it would take its height out of the trait
      list, since the calculator is pinned to exactly one screen. */
-  const runVibeCheck = useCallback(() => {
-    const { next, report } = vibeCheck(statblock, state);
+  /* Takes a block, so that something which has only just been read out of
+     pasted text can be scored without waiting a render for state to catch up. */
+  const runVibeCheck = useCallback((block?: StatBlock) => {
+    const { next, report } = vibeCheck(block ?? statblock, state);
     setState(next);
     setVibeReport(report);
     setCurrentProfile('');
@@ -201,7 +203,7 @@ export default function App() {
             theme={theme}
             onTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             onReset={reset}
-            onVibeCheck={runVibeCheck}
+            onVibeCheck={() => runVibeCheck()}
             profileNames={profileNames}
             currentProfile={currentProfile}
             onLoadProfile={loadProfile}
@@ -246,6 +248,7 @@ export default function App() {
           <MonsterMakerBody
             sb={statblock}
             onChange={setStatblock}
+            onScore={runVibeCheck}
             row={result.final.row}
           />
         </MonsterMaker>

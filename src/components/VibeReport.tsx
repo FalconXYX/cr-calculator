@@ -1,20 +1,24 @@
-import { useEffect, useRef } from 'react';
-import type { VibeReport } from '../lib/vibeCheck.ts';
+import { useEffect, useRef } from "react";
+import type { VibeReport } from "../lib/vibeCheck.ts";
 
 interface ColumnProps {
   title: string;
   note: string;
   lines: string[];
-  tone?: 'judged' | 'warn';
+  tone?: "judged" | "warn";
 }
 
 function Column({ title, note, lines, tone }: ColumnProps) {
   if (!lines.length) return null;
   return (
-    <div className={`vibe-col${tone ? ` ${tone}` : ''}`}>
+    <div className={`vibe-col${tone ? ` ${tone}` : ""}`}>
       <h3 className="vibe-col-head">{title}</h3>
       <p className="vibe-col-note">{note}</p>
-      <ul>{lines.map((line, i) => <li key={i}>{line}</li>)}</ul>
+      <ul>
+        {lines.map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -42,17 +46,26 @@ export function VibeReportPanel({ report, onDismiss }: Props) {
      bring it into view — the least that will do it, which keeps as much of
      the calculator on screen as will fit alongside. */
   useEffect(() => {
-    ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [report]);
 
   return (
-    <section className="panel vibe" ref={ref} role="status" aria-label="Vibe check report">
+    <section
+      className="panel vibe"
+      ref={ref}
+      role="status"
+      aria-label="Vibe check report"
+    >
       <div className="colhead vibe-head">
         <span className="mm-title">
           Vibe Check
-          <span className="vibe-sub">what the calculator made of the block</span>
+          <span className="vibe-sub">
+            what the calculator made of the block
+          </span>
         </span>
-        <button type="button" className="mini" onClick={onDismiss}>Dismiss</button>
+        <button type="button" className="mini" onClick={onDismiss}>
+          Dismiss
+        </button>
       </div>
       <div className="vibe-body">
         <Column

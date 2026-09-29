@@ -26,8 +26,15 @@ function averageOf(m: RegExpMatchArray): number {
 /** "…, or 18 (4d6 + 4) Piercing damage if the chimera had Advantage." */
 const OR_TAIL = /\bor\s*$/i;
 
-/** "2: Freezing Waves." — one item off a numbered menu. */
-const NUMBERED_OPTION = /\n\s*\d+[:.]\s/;
+/**
+ * "2: Freezing Waves." — one item off a numbered menu.
+ *
+ * Usually on a line of its own, but not always: text that has been through a
+ * plain-text export or an OCR pass loses its paragraph breaks and the menu
+ * arrives as one long sentence. The number, colon and capital together are
+ * specific enough to find it either way.
+ */
+const NUMBERED_OPTION = /\n\s*\d+[:.]\s|(?:^|[.\s])\d+:\s+[A-Z]/;
 
 /** The preamble that marks a menu, for lists whose items are named not numbered. */
 const MENU = /\b(?:one of the following|at random|roll 1d\d)/i;

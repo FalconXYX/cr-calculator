@@ -1,0 +1,409 @@
+/* Reading a stat block out of whatever text someone pasted.
+
+   The text comes from anywhere: Homebrewery, GM Binder, D&D Beyond, a
+   screenshot run through OCR. So the first thing that happens is that the
+   dressing comes off — blockquote markers, markdown bold, table pipes — and
+   what is left is read with patterns loose enough to cope with the rest.
+
+   Nothing here guesses quietly. A number that cannot be found is reported
+   missing and a number that fails a cross-check is reported doubtful, because
+   the block lands in the editor for correcting and a wrong number that says
+   nothing is worse than a gap that does. */
+
+import {
+  ABILITIES, ABILITY_LABEL, ABILITY_SHORT, ALIGNMENTS, CREATURE_TYPES, SIZES, SKILLS,
+  abilityMod, defaultStatBlock,
+} from './statblock.ts';
+import type {
+  Ability, ActionKind, Entry, EntrySection, SizeId, StatBlock,
+} from './statblock.ts';
+
+export interface ParseReport {
+  /** Read straight off the text. */
+  took: string[];
+  /** Read, but something about it does not add up. */
+  unsure: string[];
+  /** Not found at all, and left at its default. */
+  missing: string[];
+}
+
+export interface ParseResult {
+  block: StatBlock;
+  report: ParseReport;
+}
+
+/* ---------------- Taking the dressing off ---------------- */
+
+/**
+ * Whatever was pasted, reduced to plain lines.
+ *
+ * Homebrewery wraps everything in blockquotes and markdown; D&D Beyond and
+ * most OCR give the words with odd spacing. Both end up here as the same
+ * thing, which is what lets one set of patterns read either.
+ */
+export function normalize(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    /* Homebrewery's blockquote gutter, and markdown headings. */
+    .replace(/^[ \t]*>[ \t]?/gm, '')
+    .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
+    .replace(/^[ \t]*[-*][ \t]+/gm, '')
+    /* A markdown table's separator row carries no words. */
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/gm, '')
+    .replace(/^[ \t]*_{3,}[ \t]*$/gm, '')
+    .replace(/\|/g, '  ')
+    /* Bold and italic markers, longest first so *** does not leave a *. */
+    .replace(/\*{1,3}/g, '')
+    .replace(/(^|\s)_(\S)/g, '$1$2')
+    .replace(/(\S)_(\s|$)/g, '$1$2')
+    .replace(/[–—]/g, '–')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Does this look like a stat block at all, or did somebody paste a recipe? */
+export function looksLikeStatBlock(text: string): boolean {
+  const t = normalize(text);
+  const signals = [
+    /\b(?:Armor Class|AC)\b\s*:?\s*\d/i,
+    /\b(?:Hit Points|HP)\b\s*:?\s*\d/i,
+    /\bSTR\b/i,
+    /\b(?:Challenge|CR)\b\s*:?\s*[\d/]/i,
+    /\bSpeed\b\s*:?\s*\d/i,
+  ];
+  return signals.filter((re) => re.test(t)).length >= 2;
+}
+
+/* ---------------- Small readers ---------------- */
+
+const first = (text: string, re: RegExp): string | null => re.exec(text)?.[1] ?? null;
+const firstNumber = (text: string, re: RegExp): number | null => {
+  const found = first(text, re);
+  if (found === null) return null;
+  const n = Number(found);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** The average of "19d12 + 133", as the books round it: down. */
+export function diceAverage(formula: string): number | null {
+  const m = /(\d+)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?/i.exec(formula);
+  if (!m) return null;
+  const count = Number(m[1]);
+  const size = Number(m[2]);
+  const mod = m[4] ? Number(m[4]) * (m[3] === '-' ? -1 : 1) : 0;
+  return Math.max(1, Math.floor((count * (size + 1)) / 2) + mod);
+}
+
+/**
+ * The six ability scores, in either of the two ways they are laid out.
+ *
+ * Most blocks put the score beside its name, so the first number after STR is
+ * the Strength. A table puts all six names on one row and all six scores on
+ * the next, where the first number after STR is the Strength of nothing in
+ * particular — so that case is spotted by the names running together with no
+ * digits between them, and the scores are matched by position instead.
+ */
+function readAbilities(text: string): Record<Ability, number> | null {
+  const header = new RegExp(ABILITIES.map((a) => ABILITY_LABEL[a]).join('\\s+'), 'i');
+  const headerAt = header.exec(text);
+  if (headerAt) {
+    /* Each cell states the score and then the modifier it implies — "18 (+4)"
+       — and only the first of those is the score. The bracket goes, and a
+       sign in front rules out whatever survived it. */
+    const after = text
+      .slice(headerAt.index + headerAt[0].length)
+      .replace(/\([^)]*\)/g, ' ');
+    const numbers = [...after.matchAll(/(?<![+-])\b(\d{1,2})\b/g)].slice(0, 6).map((m) => Number(m[1]));
+    if (numbers.length === 6) {
+      return Object.fromEntries(ABILITIES.map((a, i) => [a, numbers[i]!])) as Record<Ability, number>;
+    }
+  }
+
+  const out = {} as Record<Ability, number>;
+  for (const a of ABILITIES) {
+    const n = firstNumber(text, new RegExp(`\\b${ABILITY_LABEL[a]}\\b[^0-9a-z]{0,12}(\\d{1,2})\\b`, 'i'));
+    if (n === null) return null;
+    out[a] = n;
+  }
+  return out;
+}
+
+/* ---------------- Entries ---------------- */
+
+const HEADINGS: { re: RegExp; section: EntrySection; kind?: ActionKind }[] = [
+  { re: /^legendary actions?$/i, section: 'legendary' },
+  { re: /^lair actions?$/i, section: 'lair' },
+  { re: /^bonus actions?$/i, section: 'action', kind: 'bonus' },
+  { re: /^reactions?$/i, section: 'action', kind: 'reaction' },
+  { re: /^actions?$/i, section: 'action', kind: 'action' },
+  { re: /^(?:traits?|special (?:traits|abilities))$/i, section: 'trait' },
+];
+
+/** The line that ends the header block and starts the prose. */
+const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)\b[^\n]*$/im;
+
+/**
+ * "Pack Tactics. The wolf has Advantage…" split into its name and its body.
+ *
+ * The name is short, ends in a full stop or a colon, and does not run past a
+ * clause — which is what keeps the first sentence of an unnamed paragraph
+ * from being mistaken for one.
+ */
+const ENTRY = /^([A-Z][^.\n]{0,58}?)\s*[.:]\s+([\s\S]+)$/;
+
+/**
+ * A line that starts an entry of its own: a short name, then a full stop.
+ *
+ * Optical recognition gives one line per line of the picture and no blank
+ * lines at all, so a whole action list arrives as a single paragraph. The
+ * full stop is what makes this safe — a stat block names its entries
+ * "Multiattack." but writes its clauses "Hit:" and "Failure:", so requiring
+ * the stop keeps the halves of an attack line from each becoming an action.
+ */
+const ENTRY_START = /^([A-Z][^.\n]{0,58}?)\.\s+\S/;
+
+/** Words that open a clause rather than name an entry. */
+const CLAUSE = /^(?:Hit|Miss|Failure|Success|Trigger|Response|Melee|Ranged|At Will|The|If|On|While|When|Each|Whenever)\b/i;
+
+/**
+ * One paragraph split at whatever lines inside it begin a new entry.
+ *
+ * Lines that do not begin one are joined onto the entry above, which is what
+ * puts a wrapped sentence back together.
+ */
+function splitEntries(block: string): string[] {
+  const out: string[] = [];
+  for (const raw of block.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = ENTRY_START.exec(line);
+    const name = m?.[1] ?? '';
+    const starts = Boolean(m) && name.split(/\s+/).length <= 6 && !CLAUSE.test(name);
+    if (starts || !out.length) out.push(line);
+    else out[out.length - 1] += ` ${line}`;
+  }
+  return out;
+}
+
+/** One pattern matching any heading, for finding them mid-paragraph. */
+const HEADING_LINE = new RegExp(
+  `^[ \t]*(${HEADINGS.map((h) => h.re.source.replace(/^\^|\$$/g, '')).join('|')})[ \t]*$`,
+  'gim',
+);
+
+function readEntries(body: string, report: ParseReport): Record<EntrySection, Entry[]> {
+  /* A heading does not always get a blank line to itself — Homebrewery puts
+     "### Actions" hard against the trait above it — so one is given here.
+     Without it the heading is swallowed into the trait's text and everything
+     below stays filed as a trait. */
+  const spaced = body.replace(HEADING_LINE, '\n\n$1\n\n');
+  const entries: Record<EntrySection, Entry[]> = {
+    trait: [], action: [], legendary: [], lair: [],
+  };
+  let section: EntrySection = 'trait';
+  let kind: ActionKind = 'action';
+  let id = 0;
+  let unnamed = 0;
+
+  for (const raw of spaced.split(/\n{2,}/)) {
+    const block = raw.trim();
+    if (!block) continue;
+
+    const heading = HEADINGS.find((h) => h.re.test(block));
+    if (heading) {
+      section = heading.section;
+      kind = heading.kind ?? 'action';
+      continue;
+    }
+    /* A heading can share a line with what follows it when the blank line
+       between them was lost, which OCR does constantly. */
+    const firstLine = block.split('\n')[0]?.trim() ?? '';
+    const lead = HEADINGS.find((h) => h.re.test(firstLine));
+    if (lead) {
+      section = lead.section;
+      kind = lead.kind ?? 'action';
+      const rest = block.slice(firstLine.length).trim();
+      if (!rest) continue;
+      for (const piece of splitEntries(rest)) pushEntry(piece);
+      continue;
+    }
+    for (const piece of splitEntries(block)) pushEntry(piece);
+  }
+
+  function pushEntry(block: string): void {
+    const m = ENTRY.exec(block.replace(/\n/g, ' '));
+    if (!m) {
+      /* Prose with no name in front of it — a legendary action preamble, or a
+         paragraph that belongs to whatever came before. */
+      const list = entries[section];
+      const previous = list[list.length - 1];
+      if (previous) previous.text = `${previous.text}\n\n${block.trim()}`;
+      else unnamed += 1;
+      return;
+    }
+    entries[section].push({
+      id: `p${id++}`,
+      name: m[1]!.trim(),
+      text: m[2]!.trim(),
+      ...(section === 'action' ? { kind } : {}),
+    });
+  }
+
+  if (unnamed) report.unsure.push(`${unnamed} paragraph${unnamed === 1 ? '' : 's'} had no name in front and could not be filed`);
+  return entries;
+}
+
+/* ---------------- The whole thing ---------------- */
+
+export function parseStatBlock(input: string): ParseResult {
+  const text = normalize(input);
+  const block = defaultStatBlock();
+  const report: ParseReport = { took: [], unsure: [], missing: [] };
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  block.name = lines[0] ?? 'Monster';
+  report.took.push(`Name: ${block.name}`);
+
+  /* "Huge Dragon, Chaotic Evil" — each part optional, in any of the casings
+     the different generators use. */
+  const meta = lines.slice(1, 4).find((l) => SIZES.some((s) => new RegExp(`^${s}\\b`, 'i').test(l)));
+  if (meta) {
+    const size = SIZES.find((s) => new RegExp(`^${s}\\b`, 'i').test(meta));
+    if (size) block.size = size as SizeId;
+    const type = CREATURE_TYPES.find((t) => new RegExp(`\\b${t}\\b`, 'i').test(meta));
+    if (type) block.type = type;
+    const alignment = [...ALIGNMENTS]
+      .sort((a, b) => b.length - a.length)
+      .find((a) => new RegExp(`\\b${a}\\b`, 'i').test(meta));
+    if (alignment) block.alignment = alignment;
+    report.took.push(`${block.size} ${block.type}, ${block.alignment}`);
+  } else {
+    report.missing.push('Size, type and alignment');
+  }
+
+  const ac = firstNumber(text, /^\s*(?:Armor Class|AC)\b\s*:?\s*(\d+)/im);
+  if (ac === null) report.missing.push('Armor Class');
+  else { block.acValue = ac; report.took.push(`Armor Class ${ac}`); }
+
+  const hp = firstNumber(text, /^\s*(?:Hit Points|HP)\b\s*:?\s*(\d+)/im);
+  if (hp === null) report.missing.push('Hit Points');
+  else { block.hpValue = hp; report.took.push(`Hit Points ${hp}`); }
+
+  /* The hit dice state the hit points a second time, so the two can be held
+     against each other. A mismatch means one of them was misread. */
+  const formula = first(text, /^\s*(?:Hit Points|HP)\b[^\n(]*\(([^)]*d[^)]*)\)/im);
+  if (hp !== null && formula) {
+    const average = diceAverage(formula);
+    if (average !== null && Math.abs(average - hp) > 2) {
+      report.unsure.push(`Hit Points say ${hp} but ${formula.trim()} averages ${average}`);
+    }
+  }
+
+  const speed = first(text, /^\s*Speed\b\s*:?\s*(.+)$/im);
+  if (speed) {
+    block.speeds.walk = firstNumber(speed, /^\s*(\d+)/) ?? 0;
+    for (const kind of ['burrow', 'climb', 'fly', 'swim'] as const) {
+      block.speeds[kind] = firstNumber(speed, new RegExp(`${kind}\\s*:?\\s*(\\d+)`, 'i')) ?? 0;
+    }
+    block.speeds.hover = /hover/i.test(speed);
+    report.took.push(`Speed ${speed.trim()}`);
+  } else {
+    report.missing.push('Speed');
+  }
+
+  const abilities = readAbilities(text);
+  if (abilities) {
+    block.abilities = abilities;
+    report.took.push(`Ability scores ${ABILITIES.map((a) => abilities[a]).join(' ')}`);
+  } else {
+    report.missing.push('Ability scores');
+  }
+  const mods = Object.fromEntries(
+    ABILITIES.map((a) => [a, abilityMod(block.abilities[a])]),
+  ) as Record<Ability, number>;
+
+  /* Proficiency is stated by most blocks and implied by the rest: the table
+     fixes it from the challenge rating. */
+  const statedPb = firstNumber(text, /Proficiency Bonus\s*:?\s*\+?(\d+)/i);
+  const cr = first(text, /^\s*(?:Challenge|CR)\b\s*:?\s*([\d/]+)/im);
+  if (statedPb !== null) block.proficiencyBonus = statedPb;
+  else if (cr) {
+    const value = cr.includes('/') ? 0 : Number(cr);
+    block.proficiencyBonus = Math.max(2, Math.min(9, 2 + Math.floor(Math.max(0, value - 1) / 4)));
+    report.unsure.push(`Proficiency bonus not stated; CR ${cr} implies +${block.proficiencyBonus}`);
+  } else {
+    report.missing.push('Proficiency bonus and challenge rating');
+  }
+  if (cr) report.took.push(`The block says CR ${cr}`);
+
+  const saves = first(text, /^\s*Saving Throws\b\s*:?\s*(.+)$/im);
+  if (saves) {
+    for (const a of ABILITIES) {
+      if (new RegExp(`\\b${ABILITY_SHORT[a]}\\w*\\s*[+-]`, 'i').test(saves)) block.saves.push(a);
+    }
+    if (block.saves.length) report.took.push(`Saving throws ${saves.trim()}`);
+  }
+
+  const skills = first(text, /^\s*Skills\b\s*:?\s*(.+)$/im);
+  if (skills) {
+    for (const m of skills.matchAll(/([A-Za-z][A-Za-z ]*?)\s*([+-]\s*\d+)/g)) {
+      const def = SKILLS.find((s) => s.name.toLowerCase() === (m[1] ?? '').trim().toLowerCase());
+      if (!def) continue;
+      const printed = Number((m[2] ?? '').replace(/\s+/g, ''));
+      const once = mods[def.ability] + block.proficiencyBonus;
+      const twice = mods[def.ability] + block.proficiencyBonus * 2;
+      block.skills[def.id] = Math.abs(printed - twice) < Math.abs(printed - once)
+        ? 'expertise' : 'proficient';
+    }
+    if (Object.keys(block.skills).length) report.took.push(`Skills ${skills.trim()}`);
+  }
+
+  const words = (label: string): string[] => {
+    /* Grouped, or the alternation in a label like "Damage Resistances|
+       Resistances" would swallow everything after it. */
+    const found = first(text, new RegExp(`^\\s*(?:${label})\\b\\s*:?\\s*(.+)$`, 'im'));
+    return found ? found.split(/[,;]/).map((x) => x.trim()).filter((x) => x && x !== '—') : [];
+  };
+  block.vulnerabilities = words('Damage Vulnerabilities|Vulnerabilities');
+  block.resistances = words('Damage Resistances|Resistances');
+  block.damageImmunities = words('Damage Immunities');
+  block.conditionImmunities = words('Condition Immunities');
+
+  const senses = first(text, /^\s*Senses\b\s*:?\s*(.+)$/im);
+  if (senses) {
+    for (const kind of ['darkvision', 'blindsight', 'tremorsense', 'truesight'] as const) {
+      block.senses[kind] = firstNumber(senses, new RegExp(`${kind}\\s*(\\d+)`, 'i')) ?? 0;
+    }
+    block.senses.blindBeyond = /blind beyond/i.test(senses);
+  }
+
+  const languages = first(text, /^\s*Languages\b\s*:?\s*(.+)$/im);
+  if (languages) {
+    block.telepathy = firstNumber(languages, /telepathy\s*(\d+)/i) ?? 0;
+    block.languages = languages.split(/[;,]/).map((x) => x.trim())
+      .filter((x) => x && x !== '—' && !/telepathy/i.test(x));
+  }
+
+  /* Everything after the last header line is prose. */
+  const end = LAST_HEADER.exec(text);
+  const body = end ? text.slice(end.index + end[0].length) : '';
+  block.entries = readEntries(body, report);
+  const total = Object.values(block.entries).reduce((a, l) => a + l.length, 0);
+  if (total) report.took.push(`${total} traits and actions`);
+  else report.missing.push('Traits and actions');
+
+  /* An attack bonus far from what the abilities and proficiency allow is the
+     surest sign a digit was misread. */
+  const best = Math.max(mods.str, mods.dex);
+  for (const m of text.matchAll(/(?:Attack Roll:|to hit)\D{0,6}([+-]?\d+)/gi)) {
+    const bonus = Number(m[1]);
+    if (Math.abs(bonus - (best + block.proficiencyBonus)) > 4) {
+      report.unsure.push(`An attack bonus of ${bonus >= 0 ? '+' : ''}${bonus} does not follow from these ability scores and a proficiency of +${block.proficiencyBonus}`);
+      break;
+    }
+  }
+
+  return { block, report };
+}

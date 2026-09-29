@@ -6,6 +6,7 @@ import { TRAITS, STAT_TRAITS, NO_EFFECT_TRAITS, SPELLCASTING_NOTE } from '../lib
 import { loadTraits, plainName } from '../lib/catalog.ts';
 import type { CatalogTrait } from '../lib/catalog.ts';
 import type { Tier, Trait } from '../lib/types.ts';
+import { Progress } from './monster/EditorBits.tsx';
 
 /* Every name the panel already carries, so the catalogue below can leave them
    out. The same trait twice — once with what it does to the rating and once
@@ -224,7 +225,9 @@ export function TraitsPanel({
             </button>
             <div className="noeffect-group" id="manualGroup" hidden={!manualOpen}>
               {manualOpen && !manualTraits.length && (
-                <p className="tip">Fetching the catalogue…</p>
+                <div className="trait-waiting">
+                  <Progress label="Fetching the catalogue" />
+                </div>
               )}
               {matches.manual.map((t) => (
                 <div className="trait readonly" key={t.id}>

@@ -6,7 +6,7 @@
    of the data prints the numbers the book prints. */
 
 import * as S from '../src/lib/statblock.ts';
-import { plainName, searchTemplates, searchTraits, templateBlock } from '../src/lib/catalog.ts';
+import { MONSTER_BOOKS, fromMonsterBook, plainName, searchTemplates, searchTraits, templateBlock } from '../src/lib/catalog.ts';
 import type { MonsterTemplate } from '../src/lib/catalog.ts';
 import { MONSTER_TRAITS } from '../src/data/monsterTraits.ts';
 import { MONSTER_TEMPLATES, PRUNED_AGAINST } from '../src/data/monsterTemplates.ts';
@@ -305,6 +305,27 @@ is('an empty query shows the head of the list',
 is('the limit is honoured', searchTemplates(ALL, 'a', 7).length, 7);
 is('traits search the same way',
   searchTraits(MONSTER_TRAITS, 'pack tactics')[0]!.name, 'Pack Tactics');
+
+console.log('\n--- monster books against adventures ---');
+const books = ALL.filter(fromMonsterBook);
+is('the reference document creatures are all from a monster book',
+  MONSTER_TEMPLATES.every(fromMonsterBook), true);
+is('nothing shown comes from a source that is not on the list',
+  books.every((t) => MONSTER_BOOKS.has(t.source)), true);
+if (unsealed) {
+  /* The counts are the feature, not a detail of it. If a source code changes
+     upstream and drops off the list, a few hundred creatures vanish from the
+     picker and nothing else in the suite would say so. */
+  is('the whole catalogue splits into books and adventures', books.length, 1479);
+  is('and the rest are adventures', ALL.length - books.length, 2293);
+  is('Infernal Machine Rebuild is an adventure, so its ettin called'
+    + ' "The Demogorgon" is hidden',
+    books.some((t) => t.source === 'IMR'), false);
+  is('and all twenty-six of its creatures are behind the switch',
+    ALL.filter((t) => t.source === 'IMR').length, 26);
+} else {
+  console.log('skip  the split needs BESTIARY_PASSWORD; the open set is all one book');
+}
 
 console.log('\n--- names with a qualifier in brackets ---');
 is('the bracket comes off',

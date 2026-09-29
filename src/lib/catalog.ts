@@ -46,6 +46,40 @@ export interface MonsterTemplate {
   block: SavedStatBlock;
 }
 
+/**
+ * The books whose job is creatures, as 5etools abbreviates them.
+ *
+ * Everything else in the catalogue is an adventure, and an adventure's
+ * bestiary is a different kind of thing: mostly one-off NPCs, variants and
+ * renamed stock monsters. Infernal Machine Rebuild has an ettin in it called
+ * "The Demogorgon", whose every action still reads "the ettin" — useful if
+ * you are running that adventure, noise if you are building a monster.
+ *
+ * Two thirds of the catalogue is adventures, so they start hidden.
+ *
+ * Setting books count as monster books. Ravnica and Theros and Eberron are
+ * not telling a story; their creatures are meant to be reused, which is the
+ * distinction that matters here. Strixhaven is an adventure and is not on the
+ * list, despite reading like a setting book.
+ *
+ * Anything unrecognised counts as an adventure. The list only ever grows, and
+ * a creature wrongly hidden is one toggle away, while one wrongly shown is a
+ * puzzle.
+ */
+export const MONSTER_BOOKS: ReadonlySet<string> = new Set([
+  /* Bestiaries */
+  'XMM', 'MM', 'MPMM', 'MTF', 'VGM', 'MFF', 'FTD', 'BGG', 'BAM', 'MPP',
+  'MaBJoV', 'BMT', 'MCV1SC', 'MCV2DC', 'MCV3MC', 'MCV4EC',
+  /* Rulebooks */
+  'XPHB', 'XDMG', 'PHB', 'DMG', 'XGE', 'TCE',
+  /* Setting books */
+  'ERLW', 'EGW', 'MOT', 'GGR', 'VRGR', 'AAG', 'SatO', 'TDCSR',
+]);
+
+/** Whether a creature came from a book of monsters rather than a story. */
+export const fromMonsterBook = (t: MonsterTemplate): boolean =>
+  MONSTER_BOOKS.has(t.source);
+
 export const templateBlock = (t: MonsterTemplate): StatBlock => reviveStatBlock(t.block);
 
 /* ---------------- Searching ---------------- */
