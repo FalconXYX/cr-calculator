@@ -581,9 +581,14 @@ is('the stated to-hit wins over the ability score', v.next.attackBonus, 7);
 is('the stated save DC is taken', v.next.saveDC, 15);
 is('a matching trait is ticked', v.next.traits['packTactics'], true);
 is('a non-matching trait is ignored', 'notarealtrait' in v.next.traits, false);
-is('resistances tick the resistance row', v.next.traits['damageResistance'], true);
-is('immunities tick the immunity row', v.next.traits['damageImmunity'], true);
-is('save proficiencies are counted', v.next.traitValues['saveProficiencies'], 3);
+/* One resistance and one immunity, which is under the line. Ticking these
+   was doubling the effective hit points of every skeleton immune to poison. */
+is('one resistance does not tick the row',
+  v.next.traits['damageResistance'] ?? false, false);
+is('nor does one immunity', v.next.traits['damageImmunity'] ?? false, false);
+is('but the report says so rather than going quiet',
+  v.report.judged.filter((l) => /under the three it takes/.test(l)).length, 2);
+is('three save proficiencies are counted', v.next.traitValues['saveProficiencies'], 3);
 is('stale traits are cleared', 'staleTrait' in v.next.traits, false);
 
 /* Breath Weapon scores its own damage through the trait, so counting it in
@@ -598,6 +603,29 @@ is('legendary actions are spent, and a reaction added',
 is('rounds collapse to one', v.next.roundCount, 1);
 is('secondary damage is cleared', v.next.secondary[0], 0);
 is('the target CR range is left alone', v.next.tierId, '0-4');
+
+console.log('\n--- a defence has to be worth routing around ---');
+/* Three is the line, and it is where nonmagical bludgeoning, piercing and
+   slashing lands — the case the rule exists for. */
+const armoured = S.defaultStatBlock();
+armoured.resistances = ['Bludgeoning', 'Piercing', 'Slashing'];
+armoured.damageImmunities = ['Necrotic', 'Poison'];
+armoured.saves = ['dex', 'con'];
+const a = vibeCheck(armoured, blank);
+is('three resistances tick the row', a.next.traits['damageResistance'], true);
+is('two immunities do not', a.next.traits['damageImmunity'] ?? false, false);
+is('two save proficiencies do not tick either',
+  a.next.traits['saveProficiencies'] ?? false, false);
+is('and the two that fell short are both explained',
+  a.report.judged.filter((l) => /under the three/.test(l)).length, 2);
+
+const warded = S.defaultStatBlock();
+warded.damageImmunities = ['Fire', 'Poison', 'Psychic'];
+warded.saves = ['str', 'dex', 'con', 'wis'];
+const w = vibeCheck(warded, blank);
+is('three immunities tick the immunity row', w.next.traits['damageImmunity'], true);
+is('four save proficiencies tick theirs', w.next.traits['saveProficiencies'], true);
+is('and carry their count', w.next.traitValues['saveProficiencies'], 4);
 is('the report says what it took', v.report.took.length > 5, true);
 
 /* The 2024 books write attack lines differently from the 2014 ones. */
@@ -648,7 +676,15 @@ multiAtk.entries.action = [
 const vm = vibeCheck(multiAtk, blank);
 is('the routine is two claws, not one', vm.next.primary[0], 12);
 is('and the report says why',
-  vm.report.judged.some((x) => x.includes('2 \u00d7 Claw')), true);
+  vm.report.judged.some((x) => x.includes('2 \u00d7 **Claw**')), true);
+/* The panel turns `**…**` into bold, so a stray or unclosed marker would be
+   printed at the reader instead of emphasising anything. */
+const marks = (r: { took: string[]; judged: string[]; skipped: string[] }): number =>
+  [...r.took, ...r.judged, ...r.skipped]
+    .reduce((n, line) => n + (line.match(/\*\*/g)?.length ?? 0), 0);
+is('every name the report marks is closed again', marks(vm.report) % 2, 0);
+is('and the whole dragon report too', marks(v.report) % 2, 0);
+is('names are marked at all', marks(vm.report) > 0, true);
 
 /* A hydra makes as many bites as it has heads, which is not a number. */
 const unreadable = S.defaultStatBlock();

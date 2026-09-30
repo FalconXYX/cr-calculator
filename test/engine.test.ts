@@ -21,6 +21,14 @@ const base: EngineInput = {
 };
 const run = (o: Partial<EngineInput> = {}) => E.compute({ ...base, ...o });
 
+console.log('--- fear does not stack with fear ---');
+/* Both traits say in their own description that they do not stack, and until
+   the exclusivity key they both added 25% to effective hit points. */
+const oneFear = run({ traits: { frightfulPresence: true } }).effective.hp;
+const twoFears = run({ traits: { frightfulPresence: true, horrifyingVisage: true } }).effective.hp;
+is('one way of frightening a party raises effective HP', oneFear > 75, true);
+is('and a second way adds nothing on top', twoFears, oneFear);
+
 console.log('--- table integrity ---');
 let contigHP = true, contigDmg = true;
 for (let i = 1; i < CR_TABLE.length; i++) {

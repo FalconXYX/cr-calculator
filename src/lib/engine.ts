@@ -16,7 +16,7 @@
 
 import { CR_TABLE, TIERS } from './crTable.ts';
 import { TRAITS, STAT_TRAITS } from './traits.ts';
-import type { CrRow, Tier, TierId, Trait, Breakdown, Result } from './types.ts';
+import type { CalcState, CrRow, Tier, TierId, Trait, Breakdown, Result } from './types.ts';
 
 const LAST = CR_TABLE.length - 1;
 
@@ -115,9 +115,16 @@ const ALL_TRAITS: Trait[] = [...STAT_TRAITS, ...TRAITS];
 
 function activeTraits(input: EngineInput, tier: Tier): ActiveTrait[] {
   const out: ActiveTrait[] = [];
+  /* Traits that share an exclusivity key do one job between them, so the
+     first one ticked takes it and the rest read as ticked-but-idle. Frightful
+     Presence and Horrifying Visage both say in so many words that they do not
+     stack, and until this they did. */
+  const spoken = new Set<string>();
   for (const trait of ALL_TRAITS) {
     if (!input.traits?.[trait.id]) continue;
-    const gated = Boolean(trait.lowLevel && !tier.lowLevel);
+    const doubled = Boolean(trait.exclusive && spoken.has(trait.exclusive));
+    if (trait.exclusive) spoken.add(trait.exclusive);
+    const gated = doubled || Boolean(trait.lowLevel && !tier.lowLevel);
     const raw = input.traitValues?.[trait.id];
     const value = num(raw, trait.value ? trait.value.def : 0);
     out.push({ trait, value, gated });
@@ -253,6 +260,40 @@ function computeEffectiveDamage(input: EngineInput, traits: ActiveTrait[]) {
 
   const value = (baseTotal + burst) / rounds + perRound + extra;
   return { value: round1(value), rounds, burst, perRound: perRound + extra, parts };
+}
+
+/**
+ * The calculator's own state, as the engine wants it.
+ *
+ * Four of these fields live outside `traits` because the engine treats them
+ * specially, and the translation used to be written out by hand at the one
+ * place that did it. The whole-book scoring harness in the tests wrote its
+ * own and left all four out, so every resistance, immunity, save proficiency
+ * and flying bonus was quietly absent from the accuracy figure it reported.
+ * One function, used by both, is the only way that stays true.
+ */
+export function engineInput(state: CalcState): EngineInput {
+  return {
+    tierId: state.tierId,
+    ac: state.ac,
+    hp: state.hp,
+    damageResistance: Boolean(state.traits.damageResistance),
+    damageImmunity: Boolean(state.traits.damageImmunity),
+    flyAndRanged: Boolean(state.traits.flyAndRanged),
+    saveProficiencies: state.traits.saveProficiencies
+      ? (state.traitValues.saveProficiencies ?? 3)
+      : 0,
+    attackBonus: state.attackBonus,
+    saveDC: state.saveDC,
+    offenseBy: 'auto',
+    damageMode: 'rounds',
+    roundCount: state.roundCount,
+    rounds: Array.from({ length: state.roundCount }, (_, i) =>
+      (state.primary[i] ?? 0) + (state.secondary[i] ?? 0)),
+    extraDamage: state.extraDamage,
+    traits: state.traits,
+    traitValues: state.traitValues,
+  };
 }
 
 export function compute(input: EngineInput): Result {

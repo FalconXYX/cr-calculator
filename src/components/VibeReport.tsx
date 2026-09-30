@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import type { VibeReport } from "../lib/vibeCheck.ts";
 
 interface ColumnProps {
@@ -6,6 +7,24 @@ interface ColumnProps {
   note: string;
   lines: string[];
   tone?: "judged" | "warn";
+}
+
+/**
+ * Names in bold, and nothing else.
+ *
+ * The columns are prose, and a trait or an action named halfway through a
+ * sentence is a trait you have to read the sentence to find. `vibeCheck`
+ * wraps each one; this is the other half of that agreement. The split keeps
+ * its delimiters, so the odd pieces are the marked ones.
+ */
+function emphasise(line: string): ReactNode[] {
+  return line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") ? (
+      <b key={i}>{part.slice(2, -2)}</b>
+    ) : (
+      part
+    ),
+  );
 }
 
 function Column({ title, note, lines, tone }: ColumnProps) {
@@ -16,7 +35,7 @@ function Column({ title, note, lines, tone }: ColumnProps) {
       <p className="vibe-col-note">{note}</p>
       <ul>
         {lines.map((line, i) => (
-          <li key={i}>{line}</li>
+          <li key={i}>{emphasise(line)}</li>
         ))}
       </ul>
     </div>

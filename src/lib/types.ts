@@ -61,6 +61,14 @@ export interface Trait {
   value?: TraitValueSpec;
   /** Only applies when the target tier is CR 10 or lower. */
   lowLevel?: boolean;
+  /**
+   * Traits sharing a key do the same job, so only one of them counts.
+   *
+   * Two ways of frightening a party are still one frightened party. Without
+   * this the engine adds both, and a banshee that also has Frightful Presence
+   * gets fifty per cent more effective hit points for one effect.
+   */
+  exclusive?: string;
   /** Flat bonus to effective AC. */
   ac?: number;
   /** Flat bonus to effective attack bonus. */

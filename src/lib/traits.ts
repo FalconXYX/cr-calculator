@@ -120,13 +120,13 @@ export const TRAITS: Trait[] = [
   },
   {
     id:'frightfulPresence', name:'Frightful Presence', example:'Ancient black dragon', group:'hp',
-    lowLevel:true, hpMultAdd:() => 0.25,
+    lowLevel:true, exclusive:'fear', hpMultAdd:() => 0.25,
     desc:'Each creature of the monster\'s choice within range and aware of it must succeed on a Wisdom save or be frightened for 1 minute, repeating the save at the end of each of its turns.',
     effect:'+25% effective HP, but only when the target CR is 10 or lower — higher-level parties shrug off fear.',
   },
   {
     id:'horrifyingVisage', name:'Horrifying Visage', example:'Banshee', group:'hp',
-    lowLevel:true, hpMultAdd:() => 0.25,
+    lowLevel:true, exclusive:'fear', hpMultAdd:() => 0.25,
     desc:'Each non-undead creature that can see the monster must succeed on a Wisdom save or be frightened. A creature that fails badly may also age. A successful save grants immunity for 24 hours.',
     effect:'Same as Frightful Presence: +25% effective HP when the target CR is 10 or lower. The two do not stack.',
   },

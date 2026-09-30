@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { compute, tierById } from './lib/engine.ts';
+import { compute, engineInput, tierById } from './lib/engine.ts';
 import type { CalcState, TierId } from './lib/types.ts';
 import { usePersistentState, readStored, writeStored } from './hooks/usePersistentState.ts';
 import { PopoverProvider } from './components/Popover.tsx';
@@ -114,27 +114,7 @@ export default function App() {
     setState((prev) => ({ ...prev, traitValues: { ...prev.traitValues, [id]: value } }));
   }, [setState]);
 
-  const result = useMemo(() => compute({
-    tierId: state.tierId,
-    ac: state.ac,
-    hp: state.hp,
-    damageResistance: Boolean(state.traits.damageResistance),
-    damageImmunity: Boolean(state.traits.damageImmunity),
-    flyAndRanged: Boolean(state.traits.flyAndRanged),
-    saveProficiencies: state.traits.saveProficiencies
-      ? (state.traitValues.saveProficiencies ?? 3)
-      : 0,
-    attackBonus: state.attackBonus,
-    saveDC: state.saveDC,
-    offenseBy: 'auto',
-    damageMode: 'rounds',
-    roundCount: state.roundCount,
-    rounds: Array.from({ length: state.roundCount }, (_, i) =>
-      (state.primary[i] ?? 0) + (state.secondary[i] ?? 0)),
-    extraDamage: state.extraDamage,
-    traits: state.traits,
-    traitValues: state.traitValues,
-  }), [state]);
+  const result = useMemo(() => compute(engineInput(state)), [state]);
 
   /* ---- Profiles ---- */
 

@@ -16,6 +16,43 @@ const norm = (s: string): string =>
 
 const TRAIT_BY_NAME = new Map<string, Trait>(TRAITS.map((t) => [norm(t.name), t]));
 
+/**
+ * How many damage types it takes before a defence counts.
+ *
+ * The calculator multiplies effective hit points for resistances and
+ * immunities, and doubles them outright at low challenge ratings. Applying
+ * that to one type is what made a skeleton immune to poison, or a black
+ * dragon immune to its own acid, score as though it had twice the hit points
+ * it has — a party does not even notice a single immunity, because everything
+ * else they own still works.
+ *
+ * Three is also where "bludgeoning, piercing and slashing from nonmagical
+ * attacks" falls, which is the case the rule was written for. It is stored as
+ * its three separate types, so no special case is needed for it.
+ */
+const DEFENCE_FLOOR = 3;
+
+/**
+ * And how many saving throw proficiencies.
+ *
+ * The engine already awards nothing below three. The fault was in the
+ * ticking: the box went on for a single proficiency and the report announced
+ * it as something read off the block, so the checklist and the summary both
+ * claimed a bonus the arithmetic had never given.
+ */
+const SAVE_FLOOR = 3;
+
+/**
+ * Mark a name so the report can pick it out.
+ *
+ * The columns are prose, and prose is where a name goes to hide. Every trait
+ * and every action named below is wrapped, and the panel renders the wrapper
+ * as bold — which turns a paragraph you have to read into one you can scan.
+ * Nothing else is marked: a report where half the words are bold is a report
+ * with no emphasis at all.
+ */
+const b = (name: string): string => `**${name}**`;
+
 /** A trait that scores its own damage must not also be counted in the round. */
 const scoresDamage = (t: Trait): boolean =>
   Boolean(t.dprAll || t.dprOnce || t.dprFromHp);
@@ -65,8 +102,8 @@ function describe(option: Option): string {
   const name = option.entry.name || 'Unnamed';
   const times = option.times ?? 1;
   return times > 1
-    ? `${times} \u00d7 ${name} ${Math.round(option.damage / times)}`
-    : `${name} ${option.damage}`;
+    ? `${times} \u00d7 ${b(name)} ${Math.round(option.damage / times)}`
+    : `${b(name)} ${option.damage}`;
 }
 
 /**
@@ -81,8 +118,8 @@ function explainChoice(entry: Entry, damage: number): string | null {
   if (choices < 2) return null;
   const name = entry.name || 'An action';
   return random
-    ? `${name} rolls for one of ${choices} outcomes, so its ${damage} is the average across them rather than all ${choices} added together.`
-    : `${name} offers ${choices} outcomes and the creature picks, so its ${damage} is the heaviest of them rather than all ${choices} added together.`;
+    ? `${b(name)} rolls for one of ${choices} outcomes, so its ${damage} is the average across them rather than all ${choices} added together.`
+    : `${b(name)} offers ${choices} outcomes and the creature picks, so its ${damage} is the heaviest of them rather than all ${choices} added together.`;
 }
 
 /**
@@ -118,7 +155,7 @@ function legendaryRound(
     if (left < option.cost) continue;
     const uses = option.oncePerRound ? 1 : Math.floor(left / option.cost);
     total += option.damage * uses;
-    taken.push(uses > 1 ? `${uses} \u00d7 ${option.entry.name}` : option.entry.name);
+    taken.push(uses > 1 ? `${uses} \u00d7 ${b(option.entry.name)}` : b(option.entry.name));
     left -= uses * option.cost;
   }
   return { total, label: taken.join(', ') };
@@ -181,22 +218,33 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     const v = valueFor(trait, entry, sb);
     if (v !== null) traitValues[trait.id] = v;
   }
-  if (matched.length) took.push(`${matched.length} trait${matched.length === 1 ? '' : 's'}: ${matched.join(', ')}`);
+  if (matched.length) took.push(`${matched.length} trait${matched.length === 1 ? '' : 's'}: ${matched.map(b).join(', ')}`);
 
   /* ---- Defences ---- */
 
-  if (sb.resistances.length) {
-    traits['damageResistance'] = true;
-    took.push(`Damage resistance (${sb.resistances.join(', ')})`);
-  }
-  if (sb.damageImmunities.length) {
-    traits['damageImmunity'] = true;
-    took.push(`Damage immunity (${sb.damageImmunities.join(', ')})`);
-  }
-  if (sb.saves.length) {
+  const defence = (
+    id: 'damageResistance' | 'damageImmunity',
+    types: readonly string[],
+    word: string,
+  ): void => {
+    if (!types.length) return;
+    const list = types.join(', ');
+    if (types.length >= DEFENCE_FLOOR) {
+      traits[id] = true;
+      took.push(`${types.length} damage ${word} (${list})`);
+    } else {
+      judged.push(`${types.length === 1 ? 'One' : 'Two'} damage ${word} (${list}), which is under the three it takes to count. A party routes around one or two types without noticing, so this does not raise the effective hit points.`);
+    }
+  };
+  defence('damageResistance', sb.resistances, sb.resistances.length === 1 ? 'resistance' : 'resistances');
+  defence('damageImmunity', sb.damageImmunities, sb.damageImmunities.length === 1 ? 'immunity' : 'immunities');
+
+  if (sb.saves.length >= SAVE_FLOOR) {
     traits['saveProficiencies'] = true;
     traitValues['saveProficiencies'] = sb.saves.length;
-    took.push(`${sb.saves.length} save proficienc${sb.saves.length === 1 ? 'y' : 'ies'}`);
+    took.push(`${sb.saves.length} save proficiencies`);
+  } else if (sb.saves.length) {
+    judged.push(`${sb.saves.length === 1 ? 'One save proficiency' : 'Two save proficiencies'} (${sb.saves.join(', ')}), under the three that start to count, so no effective armour class from them.`);
   }
   /* A dragon that breathes fire in a cone can fight from the air as surely as
      one with a bow, so the bonus is not about weapons — it is about whether
@@ -305,10 +353,10 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     const picks = plan && runRoutine(plan, new Set([multiattack]));
     if (picks && picks.length) {
       routine = picks.reduce((a, b) => a + b.damage, 0);
-      judged.push(`Multiattack reads as ${picks.map(describe).join(' + ')}, so a round of attacking is ${routine}.`);
+      judged.push(`${b('Multiattack')} reads as ${picks.map(describe).join(' + ')}, so a round of attacking is ${routine}.`);
       picks.forEach(noteChoice);
     } else {
-      skipped.push(`Multiattack says \u201c${multiattack.text.trim().slice(0, 80)}\u201d, which is not a number this can read. Set the damage per round yourself.`);
+      skipped.push(`${b('Multiattack')} says \u201c${multiattack.text.trim().slice(0, 80)}\u201d, which is not a number this can read. Set the damage per round yourself.`);
     }
   }
   if (!routine) {
@@ -360,7 +408,7 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     if (claimed.has(entry)) continue;
     const damage = parseDamage(entry.text);
     if (damage > 0) {
-      skipped.push(`${entry.name || 'A trait'} deals ${damage}, but only if the fight obliges \u2014 an aura needs somebody standing in it, a death burst needs the creature dead. Add it to the round yourself if it will land.`);
+      skipped.push(`${b(entry.name || 'A trait')} deals ${damage}, but only if the fight obliges \u2014 an aura needs somebody standing in it, a death burst needs the creature dead. Add it to the round yourself if it will land.`);
     }
   }
 
@@ -384,9 +432,9 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     primary[0] = opener.damage;
     primary[1] = routine;
     primary[2] = routine;
-    judged.push(`${opener.entry.name} cannot be used every round, so it takes round 1 at ${opener.damage} and the routine takes rounds 2 and 3 at ${routine}. Averaged across the three that is ${Math.round((opener.damage + routine * 2) / 3)} a round, rather than the ${opener.damage + routine} the two come to added together.`);
+    judged.push(`${b(opener.entry.name)} cannot be used every round, so it takes round 1 at ${opener.damage} and the routine takes rounds 2 and 3 at ${routine}. Averaged across the three that is ${Math.round((opener.damage + routine * 2) / 3)} a round, rather than the ${opener.damage + routine} the two come to added together.`);
   } else if (burst) {
-    judged.push(`${burst.entry.name} is limited, and at ${burst.damage} it is worth less than the routine's ${routine} anyway, so it would never be used in place of one and the round is unchanged.`);
+    judged.push(`${b(burst.entry.name)} is limited, and at ${burst.damage} it is worth less than the routine's ${routine} anyway, so it would never be used in place of one and the round is unchanged.`);
   }
 
   if (!routine && burst && !opener) primary[0] = burst.damage;

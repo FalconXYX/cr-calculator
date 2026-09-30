@@ -15,7 +15,7 @@ import { OPEN_COUNT, SEALED_COUNT } from '../src/data/bestiaryCounts.ts';
 import { open as openVault } from '../src/lib/vault.ts';
 import { vibeCheck } from '../src/lib/vibeCheck.ts';
 import { parseDamage } from '../src/lib/damageText.ts';
-import { compute } from '../src/lib/engine.ts';
+import { compute, engineInput } from '../src/lib/engine.ts';
 import type { TierId } from '../src/lib/types.ts';
 import { toRoll20 } from '../src/lib/roll20.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
@@ -256,14 +256,10 @@ for (const t of ALL) {
   const book = rung.get(t.cr);
   if (book === undefined) { unrated++; continue; }
   const { next } = vibeCheck(templateBlock(t), { ...blank, tierId: tierFor(t.crValue) });
-  const result = compute({
-    tierId: next.tierId, ac: next.ac, hp: next.hp,
-    attackBonus: next.attackBonus, saveDC: next.saveDC,
-    damageMode: 'rounds', roundCount: next.roundCount,
-    rounds: Array.from({ length: next.roundCount }, (_, i) =>
-      (next.primary[i] ?? 0) + (next.secondary[i] ?? 0)),
-    extraDamage: next.extraDamage, traits: next.traits, traitValues: next.traitValues,
-  });
+  /* Scored through the same adapter the page uses. Written out by hand here,
+     this omitted resistances, immunities, save proficiencies and the flying
+     bonus, so the figure below was measuring a calculator nobody runs. */
+  const result = compute(engineInput(next));
   scored++;
   const key = t.source === 'XMM' ? 'xmm' : 'rest';
   const row = tally.get(key) ?? { n: 0, within1: 0 };
@@ -278,8 +274,13 @@ const share = (key: string): number => {
 
 is('every creature scores without throwing', scored + unrated, ALL.length);
 is('and barely any lack a rating to compare against', unrated < 5, true);
-is('the 2025 Monster Manual still lands within one rung four times in five',
-  share('xmm') >= 80, true);
+/* 86 as this is written. The floor sits just under it rather than at 80,
+   because 80 was reachable with the defence thresholds wrong: counting a
+   single poison immunity as a doubling of effective hit points cost twelve
+   points here, and a floor that both sides clear is a floor that would not
+   have caught it. */
+is('the 2025 Monster Manual lands within one rung five times in six',
+  share('xmm') >= 84, true);
 is('- which is what share exactly', share('xmm'), share('xmm'));
 is('the older books and the adventure NPCs do worse, as they should',
   share('rest') > 45, true);
