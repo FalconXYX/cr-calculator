@@ -35,9 +35,15 @@ let listener: OcrProgress | null = null;
 const SETUP_SHARE = 0.3;
 let furthest = 0;
 
+/* Which column is being read, out of how many. A two-column page is two
+   passes, and without this the bar would fill, drop to nothing and fill
+   again — which reads as the first attempt having failed. */
+let piece = 0;
+let pieces = 1;
+
 function report(status: string, p: number): void {
   const overall = status === 'recognizing text'
-    ? SETUP_SHARE + p * (1 - SETUP_SHARE)
+    ? SETUP_SHARE + ((piece + p) / pieces) * (1 - SETUP_SHARE)
     : p * SETUP_SHARE;
   /* Never backwards. Phases can arrive out of order, and a bar that retreats
      reads as something having gone wrong. */
@@ -91,7 +97,74 @@ const MAX_SIDE = 2000;
 const MIN_SIDE = 1000;
 
 /**
- * The picture, at a size worth spending time on and the right way up.
+ * Where the page divides into two columns, or nothing if it does not.
+ *
+ * This is the whole reason a two-column stat block came back as nonsense.
+ * Tesseract reads a page in lines, and on a block printed in two columns a
+ * line runs clean through both: "Armor Class 16 Arcane Lance. Ranged Attack
+ * Roll: +8, range 150 ft." — the armour class welded to an action. Nothing
+ * downstream can unpick that, and it was wrecking every header line while
+ * leaving the traits at the bottom intact, because that is the one stretch
+ * where the right column has already run out.
+ *
+ * So the columns are separated before the recogniser ever sees them: count
+ * the dark pixels in each vertical line of the picture and look for a tall
+ * empty band down the middle. A gutter is the one place on a page of text
+ * where nothing is written for the full height, which makes it easy to find
+ * and hard to mistake for anything else.
+ */
+export function gutter(
+  frame: { width: number; height: number; data: Uint8ClampedArray | number[] },
+): { start: number; end: number } | null {
+  const { width, height, data } = frame;
+  const ink = new Int32Array(width);
+  /* Every fourth row. A letter is many rows tall, so nothing is missed, and
+     it is a quarter of the work on a picture this size. */
+  for (let y = 0; y < height; y += 4) {
+    const row = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      const i = row + x * 4;
+      if ((data[i]! + data[i + 1]! + data[i + 2]!) / 3 < 160) ink[x]! += 1;
+    }
+  }
+
+  let peak = 0;
+  let total = 0;
+  for (const v of ink) { if (v > peak) peak = v; total += v; }
+  if (!peak) return null;
+
+  /* Not quite zero: a stray speck or a hairline rule should not disqualify a
+     gap that is plainly a gutter. */
+  const quiet = peak * 0.02;
+  const narrowest = Math.max(4, Math.round(width * 0.012));
+  let best: { start: number; end: number } | null = null;
+  let run = -1;
+  for (let x = 0; x <= width; x++) {
+    const empty = x < width && ink[x]! <= quiet;
+    if (empty && run < 0) run = x;
+    if (!empty && run >= 0) {
+      const middle = (run + x) / 2;
+      /* Only the middle of the page. The margins are empty too, and they are
+         not somewhere to cut. */
+      if (x - run >= narrowest && middle > width * 0.3 && middle < width * 0.7
+        && (!best || x - run > best.end - best.start)) best = { start: run, end: x };
+      run = -1;
+    }
+  }
+  if (!best) return null;
+
+  /* Both sides have to be carrying text. Otherwise this is one column that
+     happens to have a quiet strip down it, and splitting would invent a
+     second column out of white space. */
+  let leftInk = 0;
+  for (let x = 0; x < best.start; x++) leftInk += ink[x]!;
+  const share = leftInk / total;
+  return share > 0.15 && share < 0.85 ? best : null;
+}
+
+/**
+ * The picture, at a size worth spending time on, the right way up, and in
+ * reading order.
  *
  * Recognition cost goes with the pixel count, and a screenshot from a modern
  * display is mostly pixels nobody needs: text two or three times larger than
@@ -102,8 +175,11 @@ const MIN_SIDE = 1000;
  *
  * A dark background is inverted here rather than left to Tesseract, which
  * would otherwise find out the expensive way. See `recogniser`.
+ *
+ * Returns one picture, or two when the page is in columns — left then right,
+ * which is the order they are meant to be read in.
  */
-async function prepare(image: Blob): Promise<Blob> {
+async function prepare(image: Blob): Promise<Blob[]> {
   const bitmap = await createImageBitmap(image);
   const longest = Math.max(bitmap.width, bitmap.height);
   const scale = longest > MAX_SIDE ? MAX_SIDE / longest
@@ -117,7 +193,7 @@ async function prepare(image: Blob): Promise<Blob> {
      which is the right trade for many small readbacks and the wrong one here,
      where a single large picture is scaled once and read once. */
   const ctx = canvas.getContext('2d');
-  if (!ctx) return image;
+  if (!ctx) return [image];
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
 
@@ -141,8 +217,26 @@ async function prepare(image: Blob): Promise<Blob> {
     ctx.putImageData(frame, 0, 0);
   }
 
+  const split = gutter(frame);
+  const cuts = split
+    ? [[0, split.start], [split.end, canvas.width]] as const
+    : [[0, canvas.width]] as const;
+
+  return Promise.all(cuts.map(([from, to]) => {
+    if (from === 0 && to === canvas.width) return toBlob(canvas, image);
+    const part = document.createElement('canvas');
+    part.width = to - from;
+    part.height = canvas.height;
+    const pctx = part.getContext('2d');
+    if (!pctx) return toBlob(canvas, image);
+    pctx.drawImage(canvas, from, 0, part.width, part.height, 0, 0, part.width, part.height);
+    return toBlob(part, image);
+  }));
+}
+
+function toBlob(canvas: HTMLCanvasElement, fallback: Blob): Promise<Blob> {
   return new Promise<Blob>((resolve) => {
-    canvas.toBlob((blob) => resolve(blob ?? image), 'image/png');
+    canvas.toBlob((blob) => resolve(blob ?? fallback), 'image/png');
   });
 }
 
@@ -160,14 +254,25 @@ export async function readImage(image: Blob, onProgress: OcrProgress): Promise<s
   try {
     /* Preparing the picture is an optimisation, not a requirement. A format
        the canvas will not decode should cost the saving, not the reading. */
-    const [engine, ready] = await Promise.all([
+    const [engine, parts] = await Promise.all([
       recogniser(),
-      prepare(image).catch(() => image),
+      prepare(image).catch(() => [image]),
     ]);
-    const { data } = await engine.recognize(ready);
-    return data.text;
+    const out: string[] = [];
+    pieces = parts.length;
+    for (const [i, part] of parts.entries()) {
+      piece = i;
+      const { data } = await engine.recognize(part);
+      out.push(data.text.trim());
+    }
+    /* A blank line between the columns, which is what tells the reader
+       downstream that the right column starts a new thing rather than
+       continuing the last sentence of the left one. */
+    return out.filter(Boolean).join('\n\n');
   } finally {
     listener = null;
+    piece = 0;
+    pieces = 1;
   }
 }
 

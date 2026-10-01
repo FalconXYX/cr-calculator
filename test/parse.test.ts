@@ -16,6 +16,7 @@ import { MONSTER_TEMPLATES } from '../src/data/monsterTemplates.ts';
 import { SEALED_TEMPLATES } from '../src/data/monsterTemplatesSealed.ts';
 import { open as openVault } from '../src/lib/vault.ts';
 import { templateBlock } from '../src/lib/catalog.ts';
+import { gutter } from '../src/lib/ocr.ts';
 import { vibeCheck } from '../src/lib/vibeCheck.ts';
 import { compute } from '../src/lib/engine.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
@@ -199,6 +200,82 @@ is('a clause does not become an action of its own',
   clauses.block.entries.action.map((e) => e.name).join(', '), 'Bite, Breath');
 is('it stays with the action it belongs to',
   clauses.block.entries.action[0]?.text.includes('Hit: 5 (1d6 + 2)'), true);
+
+console.log('\n--- finding the gutter between two columns ---');
+/* The failure this exists for: a two-column block read as one page comes back
+   with every line welded to the line beside it — "Armor Class 16 Arcane
+   Lance. Ranged Attack Roll: +8" — and nothing downstream can unpick that. */
+const page = (
+  bands: readonly (readonly [number, number])[], width = 400, height = 100,
+): { width: number; height: number; data: number[] } => {
+  const data = new Array<number>(width * height * 4).fill(255);
+  for (const [from, to] of bands) {
+    for (let y = 0; y < height; y++) {
+      for (let x = from; x < to; x++) {
+        const i = (y * width + x) * 4;
+        data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
+      }
+    }
+  }
+  return { width, height, data };
+};
+
+const twoCols = gutter(page([[20, 180], [220, 380]]));
+is('two columns are found', Boolean(twoCols), true);
+is('and the cut lands between them',
+  twoCols ? twoCols.start >= 180 && twoCols.end <= 220 : false, true);
+
+is('one column is left alone', gutter(page([[20, 380]])), null);
+is('a page with a wide margin is still one column',
+  gutter(page([[120, 280]])), null);
+/* A narrow word gap is not a gutter. Without a minimum width every space
+   between two words would be a column boundary. */
+is('a hairline gap is not a gutter', gutter(page([[20, 199], [201, 380]])), null);
+/* Three quarters of the ink on one side means the quiet strip is white space
+   inside a single column, not a division into two. */
+is('a thin strip beside a block of text is not a second column',
+  gutter(page([[20, 300], [370, 380]])), null);
+is('a blank page has no gutter', gutter(page([])), null);
+
+console.log('\n--- a header line that wrapped ---');
+/* Printed blocks wrap Skills, Languages and the damage lists constantly, and
+   a pattern that stopped at the newline dropped whatever came after. */
+const wrapped = parseStatBlock([
+  'Zhentarim Skymage',
+  'Medium Humanoid, Lawful Evil',
+  'Armor Class 16',
+  'Hit Points 153 (18d8 + 72)',
+  'Speed 30 ft.',
+  'STR DEX CON INT WIS CHA',
+  '9 (-1) 16 (+3) 18 (+4) 18 (+4) 12 (+1) 16 (+3)',
+  'Saving Throws Int +8, Wis +5',
+  'Skills Animal Handling +5, Arcana +8, Deception +7,',
+  'Perception +5',
+  'Damage Resistances Cold, Fire,',
+  'Lightning',
+  'Languages Common, Draconic, Tharian, Zhentarim Argot, one',
+  'other language',
+  'Challenge 10 (5,900 XP)',
+  'Proficiency Bonus +4',
+  '',
+  'Bonded Mount. The skymage has a magical bond with a mount.',
+].join('\n'));
+is('the skill that wrapped is not lost',
+  'perception' in wrapped.block.skills, true);
+is('and neither is the one above it', 'deception' in wrapped.block.skills, true);
+is('the wrapped language comes through',
+  wrapped.block.languages.includes('one other language'), true);
+is('and the wrapped resistance', wrapped.block.resistances.join(','), 'Cold,Fire,Lightning');
+/* Which matters twice over: three resistances is where the calculator starts
+   counting them, so dropping the third changes the rating. */
+is('- which is three, so the vibe check counts them',
+  Boolean(vibeCheck(wrapped.block, {
+    tierId: '0-4', ac: 13, hp: 75, attackBonus: 4, saveDC: 12, extraDamage: 0,
+    roundCount: 1, primary: [0, 0, 0, 0, 0, 0], secondary: [0, 0, 0, 0, 0, 0],
+    traits: {}, traitValues: {},
+  }).next.traits['damageResistance']), true);
+is('the entry under the headers is still an entry, not a continuation',
+  wrapped.block.entries.trait[0]?.name, 'Bonded Mount');
 
 console.log('\n--- three thousand blocks, out and back ---');
 const password = process.env['BESTIARY_PASSWORD'];

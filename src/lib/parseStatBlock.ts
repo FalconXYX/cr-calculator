@@ -79,6 +79,34 @@ export function looksLikeStatBlock(text: string): boolean {
 /* ---------------- Small readers ---------------- */
 
 const first = (text: string, re: RegExp): string | null => re.exec(text)?.[1] ?? null;
+
+/**
+ * A header line, and whatever wrapped off the end of it.
+ *
+ * "Skills Animal Handling +5, Arcana +8, Deception +7," with "Perception +5"
+ * underneath is one line in the book and two on a screen, and a pattern that
+ * stops at the newline silently drops the last skill. Printed blocks wrap
+ * Skills, Languages and the damage lists constantly, so this keeps reading
+ * until something announces itself: another header, a section heading, or a
+ * named entry. A blank line ends it too.
+ */
+function header(text: string, label: string): string | null {
+  const lines = text.split('\n');
+  const re = new RegExp(`^[ \t]*(?:${label})\\b[ \t]*:?[ \t]*(.*)$`, 'i');
+  for (let i = 0; i < lines.length; i++) {
+    const found = re.exec(lines[i]!);
+    if (!found) continue;
+    let value = (found[1] ?? '').trim();
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j]!;
+      if (!next.trim()) break;
+      if (HEADER_LABEL.test(next) || HEADING_LINE.test(next) || ENTRY_START.test(next)) break;
+      value += ` ${next.trim()}`;
+    }
+    return value || null;
+  }
+  return null;
+}
 const firstNumber = (text: string, re: RegExp): number | null => {
   const found = first(text, re);
   if (found === null) return null;
@@ -143,6 +171,10 @@ const HEADINGS: { re: RegExp; section: EntrySection; kind?: ActionKind }[] = [
 
 /** The line that ends the header block and starts the prose. */
 const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)\b[^\n]*$/im;
+
+/* Everything that announces itself at the start of a line in the top half of
+   a block. Used to tell a header apart from the tail of the one above it. */
+const HEADER_LABEL = /^[ \t]*(?:Armor Class|AC|Initiative|Hit Points|HP|Speed|Saving Throws|Saves|Skills|Gear|Damage Vulnerabilities|Vulnerabilities|Damage Resistances|Resistances|Damage Immunities|Immunities|Condition Immunities|Senses|Languages|Challenge|CR|Proficiency Bonus|PB|STR|DEX|CON|INT|WIS|CHA)\b/i;
 
 /**
  * "Pack Tactics. The wolf has Advantage…" split into its name and its body.
@@ -338,7 +370,7 @@ export function parseStatBlock(input: string): ParseResult {
   }
   if (cr) report.took.push(`The block says CR ${cr}`);
 
-  const saves = first(text, /^\s*Saving Throws\b\s*:?\s*(.+)$/im);
+  const saves = header(text, 'Saving Throws');
   if (saves) {
     for (const a of ABILITIES) {
       if (new RegExp(`\\b${ABILITY_SHORT[a]}\\w*\\s*[+-]`, 'i').test(saves)) block.saves.push(a);
@@ -346,7 +378,7 @@ export function parseStatBlock(input: string): ParseResult {
     if (block.saves.length) report.took.push(`Saving throws ${saves.trim()}`);
   }
 
-  const skills = first(text, /^\s*Skills\b\s*:?\s*(.+)$/im);
+  const skills = header(text, 'Skills');
   if (skills) {
     for (const m of skills.matchAll(/([A-Za-z][A-Za-z ]*?)\s*([+-]\s*\d+)/g)) {
       const def = SKILLS.find((s) => s.name.toLowerCase() === (m[1] ?? '').trim().toLowerCase());
@@ -363,7 +395,7 @@ export function parseStatBlock(input: string): ParseResult {
   const words = (label: string): string[] => {
     /* Grouped, or the alternation in a label like "Damage Resistances|
        Resistances" would swallow everything after it. */
-    const found = first(text, new RegExp(`^\\s*(?:${label})\\b\\s*:?\\s*(.+)$`, 'im'));
+    const found = header(text, label);
     return found ? found.split(/[,;]/).map((x) => x.trim()).filter((x) => x && x !== '—') : [];
   };
   block.vulnerabilities = words('Damage Vulnerabilities|Vulnerabilities');
@@ -371,7 +403,7 @@ export function parseStatBlock(input: string): ParseResult {
   block.damageImmunities = words('Damage Immunities');
   block.conditionImmunities = words('Condition Immunities');
 
-  const senses = first(text, /^\s*Senses\b\s*:?\s*(.+)$/im);
+  const senses = header(text, 'Senses');
   if (senses) {
     for (const kind of ['darkvision', 'blindsight', 'tremorsense', 'truesight'] as const) {
       block.senses[kind] = firstNumber(senses, new RegExp(`${kind}\\s*(\\d+)`, 'i')) ?? 0;
@@ -379,7 +411,7 @@ export function parseStatBlock(input: string): ParseResult {
     block.senses.blindBeyond = /blind beyond/i.test(senses);
   }
 
-  const languages = first(text, /^\s*Languages\b\s*:?\s*(.+)$/im);
+  const languages = header(text, 'Languages');
   if (languages) {
     block.telepathy = firstNumber(languages, /telepathy\s*(\d+)/i) ?? 0;
     block.languages = languages.split(/[;,]/).map((x) => x.trim())
