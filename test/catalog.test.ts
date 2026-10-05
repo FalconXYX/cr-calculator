@@ -282,9 +282,21 @@ is('and barely any lack a rating to compare against', unrated < 5, true);
 is('the 2025 Monster Manual lands within one rung five times in six',
   share('xmm') >= 84, true);
 is('- which is what share exactly', share('xmm'), share('xmm'));
-is('the older books and the adventure NPCs do worse, as they should',
-  share('rest') > 45, true);
-is('- and that share', share('rest'), share('rest'));
+/* 64 as this is written, up from 59 once the older Multiattack wordings were
+   read — "attacks twice with her talons" and the rest, which are how almost
+   everything outside the 2025 book is phrased. The floor sits just under it
+   rather than at the 45 it started from, which nothing could have failed.
+
+   Only with the vault open. Sealed, this bucket holds six creatures, and a
+   percentage of six is not a measurement — the old floor passed locked by
+   luck rather than by being met. */
+if (unsealed) {
+  is('the older books and the adventure NPCs do worse, as they should',
+    share('rest') >= 62, true);
+  is('- and that share', share('rest'), share('rest'));
+} else {
+  console.log('skip  the non-XMM share needs BESTIARY_PASSWORD; six creatures is not a sample');
+}
 
 console.log('\n--- and Roll20 still takes them ---');
 const r20 = toRoll20(red, rd);

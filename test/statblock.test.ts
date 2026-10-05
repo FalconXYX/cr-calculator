@@ -540,6 +540,38 @@ is('something used alongside the attacks comes too',
 is('a repeated action is read', parseMultiattack('The beholder uses Eye Rays three times.')!.branches[0]![0]!.times, 3);
 is('and what cannot be read comes back empty-handed',
   parseMultiattack('The hydra makes as many Bite attacks as it has heads.'), null);
+is('nor is a count that depends on a spell slot guessed at',
+  parseMultiattack("The spirit makes a number of Rend attacks equal to half this spell's level (round down)."), null);
+
+/* Two thirds of the catalogue is not the 2025 book, and outside it a
+   Multiattack almost never puts the name before the word "attack". None of
+   the wordings below were read: the routine came out empty and the creature
+   scored only whatever single action happened to be heaviest. */
+const maShape = (text: string) => (parseMultiattack(text)?.branches[0] ?? [])
+  .map((p) => `${p.times}x${p.names.join('/')}`).join(' + ');
+
+is('a count, a colon, and the limbs after it',
+  maShape('The dragon makes three attacks: one with its bite and two with its claws.'),
+  '1xbite + 2xclaws');
+is('the weapon named after the count',
+  maShape('Ahmaergo makes three attacks with his greataxe.'), '3xgreataxe');
+is('two weapons in one sentence stay apart',
+  maShape('The achaierai makes two attacks with its Talons and one attack with its Beak.'),
+  '2xTalons + 1xBeak');
+/* The count after the verb instead of before it — the largest single group
+   of Multiattacks that went unread. */
+is('the count as an adverb', maShape('Auril attacks twice with her talons.'), '2xtalons');
+is('- and twice over, with a different weapon each time',
+  maShape('Bel attacks twice with his Greatsword and once with his Tail.'),
+  '2xGreatsword + 1xTail');
+is('a kind rather than a name', maShape('The deva makes four melee attacks.'), '4xmelee');
+is('a count and nothing else at all', maShape('The library makes two attacks.'), '2xattack');
+is('the combination phrased the other way round',
+  maShape('Boss Augustus makes any combination of two Bite, Claw, or Magic Longsword attacks.'),
+  '2xBite/Claw/Magic Longsword');
+/* Alternatives still have to stay alternatives, however they are written. */
+is('an "or" is still two routines, not one longer one',
+  parseMultiattack('The hoplite makes three melee attacks or two ranged attacks.')!.branches.length, 2);
 
 is('a recharge marks a limited use', isLimitedUse('Fire Breath (Recharge 5\u20136)'), true);
 is('so does a daily', isLimitedUse('Wish (1/Day)'), true);

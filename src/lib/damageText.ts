@@ -226,8 +226,17 @@ export function parseSaveDC(text: string): number | null {
 
 const COUNTS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
-  once: 1, twice: 2,
+  once: 1, twice: 2, thrice: 3,
 };
+
+/** Every way a Multiattack writes how many, in one alternation. */
+const COUNT_WORD = '(?:once|twice|thrice|one|two|three|four|five|six|seven|eight)';
+/** The same, where it trails the verb: "attacks three times with its claws". */
+const ADVERB_COUNT = `(?:once|twice|thrice|(?:one|two|three|four|five|six|seven|eight)\\s+times)`;
+/** What stands between "with" and the name of the thing swung. */
+const WHOSE = '(?:its|his|her|their|the|a|an|one\\s+of\\s+its|one\\s+of\\s+his|one\\s+of\\s+her)?';
+/** A blow, by either of the words the books use for one. */
+const BLOW = '(?:attacks?|strikes?)';
 
 /** One clause of a Multiattack: "two Claw attacks". */
 export interface RoutinePart {
@@ -255,8 +264,12 @@ function countOf(word: string): number | undefined {
 }
 
 /** "Scimitar or Pistol" -> both, because each attack picks one of them. */
-const splitNames = (names: string): string[] =>
-  names.split(/\s*,\s*|\s+(?:or|and)\s+/i).map((n) => n.trim()).filter(Boolean);
+const splitNames = (names: string): string[] => names
+  .split(/\s*,\s*|\s+(?:or|and)\s+/i)
+  /* The comma is split on first, so the last item of "Bite, Claw, or Magic
+     Longsword" arrives still wearing its "or". */
+  .map((n) => n.trim().replace(/^(?:or|and)\s+/i, '').trim())
+  .filter(Boolean);
 
 /**
  * One clause of a routine, in either shape the book uses:
@@ -265,8 +278,8 @@ const splitNames = (names: string): string[] =>
  */
 const clausePattern = (first: string): RegExp => new RegExp(
   '\\b(one|two|three|four|five|six|seven|eight)\\s+'
-  + `(?:([${first}][^,.]*?)\\s+attacks?`
-  + '|(?:other\\s+)?attacks?,?\\s+using\\s+(.+?)\\s+in any combination)\\b',
+  + `(?:([${first}][^,.]*?)\\s+${BLOW}`
+  + `|(?:other\\s+)?${BLOW},?\\s+using\\s+(.+?)\\s+in any combination)\\b`,
   'g');
 
 /* Capitalised first, because that is how the books name an attack and it
@@ -276,6 +289,66 @@ const clausePattern = (first: string): RegExp => new RegExp(
 const CLAUSE = clausePattern('A-Z');
 const CLAUSE_ANY_CASE = clausePattern('A-Za-z');
 
+/**
+ * The older wording, which names the weapon after the count rather than
+ * before it: "makes three attacks: one with its bite and two with its claws",
+ * "makes two attacks with its Talons and one attack with its Beak", "makes
+ * three attacks with his greataxe".
+ *
+ * This is most of what Multiattack says outside the 2025 book, and none of it
+ * was read. The name stops at the next "and" or "or" that introduces a count,
+ * which is what keeps "two attacks with its Talons and one attack with its
+ * Beak" from reading as a single attack called "Talons and one attack with
+ * its Beak".
+ */
+const WITH_CLAUSE = new RegExp(
+  '\\b(one|two|three|four|five|six|seven|eight)\\s+'
+  + '(?:(?:melee|ranged|weapon|spell|magic)\\s+)*(?:attacks?\\s+)?'
+  + 'with\\s+(?:its|his|her|their|the)\\s+'
+  + '([A-Za-z][^,.;:]*?)'
+  + '(?=\\s+(?:and|or)\\s+(?:one|two|three|four|five|six|seven|eight)\\b|[,.;:]|$)',
+  'gi');
+
+/**
+ * A count and nothing else: "The library makes two attacks."
+ *
+ * Tried last, because it says the least. The kind, where there is one, is
+ * what the reader uses to decide which of the creature's attacks it means;
+ * with no kind at all, any of them will do and the heaviest wins.
+ */
+const BARE_CLAUSE = new RegExp(
+  '\\bmakes\\s+(one|two|three|four|five|six|seven|eight)\\s+'
+  + `((?:melee|ranged|weapon|spell|magic)?)\\s*${BLOW}\\b`,
+  'gi');
+
+/**
+ * The count after the verb rather than before it: "Auril attacks twice with
+ * her talons", "Bel attacks twice with his Greatsword and once with his
+ * Tail", "the berserker attacks three times with a melee weapon".
+ *
+ * The largest group of Multiattacks left unread once the others were in. It
+ * is the same sentence as "makes two Talon attacks" with the pieces in a
+ * different order, and nothing about it is ambiguous.
+ */
+const ADVERB_CLAUSE = new RegExp(
+  `\\b(${ADVERB_COUNT})\\s+with\\s+${WHOSE}\\s*`
+  + '([A-Za-z][^,.;:]*?)'
+  + `(?=\\s+(?:and|or)\\s+${ADVERB_COUNT}\\b|[,.;:]|$)`,
+  'gi');
+
+/** "makes any combination of two Bite, Claw, or Magic Longsword attacks". */
+const ANY_COMBINATION = new RegExp(
+  `\\bany combination of\\s+(${COUNT_WORD.slice(3, -1)})\\s+(.+?)\\s+${BLOW}\\b`,
+  'gi');
+
+/** "using its Warhammer, Throwing Hammer, or a combination of the two". */
+const COMBINATION = new RegExp(
+  '\\b(one|two|three|four|five|six|seven|eight)\\s+'
+  + '(?:(?:other|melee|ranged|weapon)\\s+)*attacks?,?\\s+using\\s+'
+  + '(?:its|his|her|their|the)?\\s*(.+?)'
+  + ',?\\s+(?:in any combination|or a combination|or any combination)',
+  'gi');
+
 /** "and it uses Dreadful Glare" — one more action, on top of the attacks. */
 const ALSO_USES = /(?:\band|\.)\s+(?:it\s+)?uses\s+([A-Z][^,.]*?)(?=[.,]|$)/gi;
 
@@ -284,7 +357,9 @@ function clauses(text: string, pattern: RegExp): RoutinePart[][] {
   let cursor = 0;
   for (const m of text.matchAll(pattern)) {
     const times = countOf(m[1]!);
-    const names = splitNames(m[2] ?? m[3] ?? '');
+    /* The bare pattern leaves the kind empty when the text gives none, and
+       "attack" is then the name — which the reader takes to mean any of them. */
+    const names = splitNames(m[2]?.trim() || m[3]?.trim() || 'attack');
     if (!times || !names.length) continue;
     const at = m.index ?? 0;
     const joiner = text.slice(cursor, at);
@@ -314,7 +389,12 @@ export function parseMultiattack(text: string): Routine | null {
   /* "makes one Ram attack, one Bite attack, and one Claw attack" — and the
      same again after an "or", which starts a routine of its own. */
   const branches = clauses(text, CLAUSE);
+  if (!branches.length) branches.push(...clauses(text, COMBINATION));
+  if (!branches.length) branches.push(...clauses(text, WITH_CLAUSE));
   if (!branches.length) branches.push(...clauses(text, CLAUSE_ANY_CASE));
+  if (!branches.length) branches.push(...clauses(text, ANY_COMBINATION));
+  if (!branches.length) branches.push(...clauses(text, ADVERB_CLAUSE));
+  if (!branches.length) branches.push(...clauses(text, BARE_CLAUSE));
   if (!branches.length) return null;
 
   /* Something used alongside the attacks belongs to every routine on offer. */

@@ -289,8 +289,77 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
      attack — "Pounce. The dragon moves up to half its Speed, and it makes one
      Rend attack." Look the attack up rather than scoring the pounce at zero,
      which is how a dragon's legendary actions used to come to nothing. */
-  const byName = new Map<string, Entry>();
-  for (const { entry } of all) byName.set(norm(entry.name), entry);
+  /* All of them, not the last one. A creature often has an action and a
+     legendary action of the same name — the action swings, the legendary one
+     says "Bodhi makes one Unarmed Strike attack" and deals nothing on its
+     own. Keeping a single entry per name let the empty one win, and the whole
+     routine then scored zero. */
+  const byName = new Map<string, Entry[]>();
+  for (const { entry } of all) {
+    const key = norm(entry.name);
+    const held = byName.get(key);
+    if (held) held.push(entry);
+    else byName.set(key, [entry]);
+  }
+
+  /* A Multiattack does not always name what it is repeating. "makes two melee
+     attacks" names a kind, and "makes two attacks with its claws" names the
+     limb rather than the action, which is called Claw. Both were coming back
+     with nothing found, so the whole routine scored zero. */
+  /* Several of these run together — "a melee weapon", "one of its weapons" —
+     and the whole phrase still names a kind rather than an action. */
+  const KIND_WORD = '(?:melee|ranged|weapon|spell|magic|attacks?|strikes?|weapons)';
+  const KIND = new RegExp(`^${KIND_WORD}(?:\\s+${KIND_WORD})*$`, 'i');
+  /* "Melee Attack Roll" in the 2025 wording, and "mw" in the older data,
+     where the tag {@atk mw} leaves the abbreviation behind rather than the
+     words. Four attacks in five across the catalogue are the second kind, so
+     a test for the word alone finds almost none of them. */
+  const MELEE = /\bmelee\b|\b(?:mw|ms)\b/i;
+  const RANGED = /\branged\b|\b(?:rw|rs)\b/i;
+  const attacks = (kind: string): Entry[] => {
+    const melee = /\bmelee\b/i.test(kind);
+    const ranged = /\branged\b/i.test(kind);
+    return sb.entries.action.filter((e) => {
+      if (kindOf(e) !== 'action') return false;
+      /* An attack roll is what makes it an attack. It also keeps a breath
+         weapon out of the pool, since a saving throw is not an attack. */
+      if (parseToHit(`${e.name} ${e.text}`) === null) return false;
+      const text = `${e.name} ${e.text}`;
+      if (melee) return MELEE.test(text);
+      if (ranged) return RANGED.test(text);
+      return true;
+    });
+  };
+
+  /** Every entry a name in a routine could mean. */
+  const lookUp = (name: string): Entry[] => {
+    const key = norm(name);
+    /* Books write the limb and name the action after it: "two attacks with
+       its claws" against an action called Claw. */
+    const exact = byName.get(key) ?? byName.get(key.replace(/s$/, '')) ?? byName.get(`${key}s`);
+    if (exact) return exact;
+
+    /* An action's name often carries more than the Multiattack repeats of it:
+       "two shortsword attacks" against an action called Shortsword +2, and
+       "three unarmed strikes" against Unarmed Strike. Only the start counts,
+       and only the closest match — the shortest name that begins with what
+       was asked for — so "Claw" does not also drag in Claw Flurry.
+
+       Matching anywhere in the name rather than at the start was tried and
+       is worse: it rescues a "longsword" that wants Flaming Longsword, and
+       loses thirty-two other creatures to names that merely share a word. */
+    if (key.length >= 4) {
+      let best: Entry[] = [];
+      let shortest = Infinity;
+      for (const [other, held] of byName) {
+        if (!other.startsWith(key)) continue;
+        if (other.length < shortest) { shortest = other.length; best = [...held]; }
+        else if (other.length === shortest) best.push(...held);
+      }
+      if (best.length) return best;
+    }
+    return KIND.test(name.trim()) ? attacks(name) : [];
+  };
 
   /**
    * Work a routine out against the actions it names.
@@ -308,8 +377,8 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
       let damage = 0;
       for (const part of branch) {
         const named = part.names
-          .map((name) => byName.get(norm(name)))
-          .filter((e): e is Entry => Boolean(e) && !open.has(e as Entry));
+          .flatMap(lookUp)
+          .filter((e) => !open.has(e));
         const pick = heaviest(named, (e) => damageAt(e, open));
         if (!pick) continue;
         damage += part.times * pick.damage;
