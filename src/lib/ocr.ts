@@ -122,10 +122,18 @@ export function gutter(
      it is a quarter of the work on a picture this size. */
   for (let y = 0; y < height; y += 4) {
     const row = y * width * 4;
+    const dark: number[] = [];
     for (let x = 0; x < width; x++) {
       const i = row + x * 4;
-      if ((data[i]! + data[i + 1]! + data[i + 2]!) / 3 < 160) ink[x]! += 1;
+      if ((data[i]! + data[i + 1]! + data[i + 2]!) / 3 < 160) dark.push(x);
     }
+    /* A row that is dark most of the way across is a rule, not writing. One
+       rule drawn under a title spans both columns, and counted as ink it puts
+       something in every single vertical line of the page — which leaves no
+       empty band anywhere and hides the gutter completely. That is one line
+       of a picture standing between a stat block being read and not. */
+    if (dark.length > width * 0.5) continue;
+    for (const x of dark) ink[x]! += 1;
   }
 
   let peak = 0;

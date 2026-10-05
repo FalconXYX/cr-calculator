@@ -11,7 +11,8 @@
    nothing is worse than a gap that does. */
 
 import {
-  ABILITIES, ABILITY_LABEL, ABILITY_SHORT, ALIGNMENTS, CREATURE_TYPES, SIZES, SKILLS,
+  ABILITIES, ABILITY_LABEL, ABILITY_SHORT, ALIGNMENTS, CONDITIONS, CREATURE_TYPES,
+  SIZES, SKILLS,
   abilityMod, defaultStatBlock,
 } from './statblock.ts';
 import type {
@@ -100,7 +101,7 @@ function header(text: string, label: string): string | null {
     for (let j = i + 1; j < lines.length; j++) {
       const next = lines[j]!;
       if (!next.trim()) break;
-      if (HEADER_LABEL.test(next) || HEADING_LINE.test(next) || ENTRY_START.test(next)) break;
+      if (HEADER_LABEL.test(next) || headingFor(next) || ENTRY_START.test(next)) break;
       value += ` ${next.trim()}`;
     }
     return value || null;
@@ -160,17 +161,60 @@ function readAbilities(text: string): Record<Ability, number> | null {
 
 /* ---------------- Entries ---------------- */
 
-const HEADINGS: { re: RegExp; section: EntrySection; kind?: ActionKind }[] = [
-  { re: /^legendary actions?$/i, section: 'legendary' },
-  { re: /^lair actions?$/i, section: 'lair' },
-  { re: /^bonus actions?$/i, section: 'action', kind: 'bonus' },
-  { re: /^reactions?$/i, section: 'action', kind: 'reaction' },
-  { re: /^actions?$/i, section: 'action', kind: 'action' },
-  { re: /^(?:traits?|special (?:traits|abilities))$/i, section: 'trait' },
+interface Heading {
+  re: RegExp;
+  /** The same words with everything but letters taken out, for a near match. */
+  keys: string[];
+  section: EntrySection;
+  kind?: ActionKind;
+}
+
+const HEADINGS: Heading[] = [
+  { re: /^legendary actions?$/i, keys: ['legendaryaction', 'legendaryactions'], section: 'legendary' },
+  { re: /^lair actions?$/i, keys: ['lairaction', 'lairactions'], section: 'lair' },
+  { re: /^bonus actions?$/i, keys: ['bonusaction', 'bonusactions'], section: 'action', kind: 'bonus' },
+  { re: /^reactions?$/i, keys: ['reaction', 'reactions'], section: 'action', kind: 'reaction' },
+  { re: /^actions?$/i, keys: ['action', 'actions'], section: 'action', kind: 'action' },
+  { re: /^(?:traits?|special (?:traits|abilities))$/i, keys: ['trait', 'traits', 'specialtraits', 'specialabilities'], section: 'trait' },
 ];
 
+/** Whether two words differ by at most one letter added, dropped or changed. */
+function near(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  let i = 0;
+  let j = 0;
+  let slips = 0;
+  while (i < short.length && j < long.length) {
+    if (short[i] === long[j]) { i++; j++; continue; }
+    if (++slips > 1) return false;
+    if (short.length === long.length) i++;
+    j++;
+  }
+  return slips + (long.length - j) + (short.length - i) <= 1;
+}
+
+/**
+ * Which section a line announces, if it announces one.
+ *
+ * Headings are printed in small capitals, and small capitals are what optical
+ * recognition is worst at: "BONUS ACTIONS" came back as "Bonus AcTioNns".
+ * Miss it and every bonus action is filed as an action. One wrong letter is
+ * still plainly the heading — two would be a guess, so one is all that is
+ * allowed, and only on a line short enough to be a heading in the first place.
+ */
+function headingFor(line: string): Heading | null {
+  const trimmed = line.trim();
+  const exact = HEADINGS.find((h) => h.re.test(trimmed));
+  if (exact) return exact;
+  const key = trimmed.toLowerCase().replace(/[^a-z]/g, '');
+  if (!key || key.length > 20 || trimmed.length > 24) return null;
+  return HEADINGS.find((h) => h.keys.some((k) => near(key, k))) ?? null;
+}
+
 /** The line that ends the header block and starts the prose. */
-const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)\b[^\n]*$/im;
+const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)(?![a-z])[^\n]*$/im;
 
 /* Everything that announces itself at the start of a line in the top half of
    a block. Used to tell a header apart from the tail of the one above it. */
@@ -196,6 +240,9 @@ const ENTRY = /^([A-Z][^.\n]{0,58}?)\s*[.:]\s+([\s\S]+)$/;
  */
 const ENTRY_START = /^([A-Z][^.\n]{0,58}?)\.\s+\S/;
 
+/** A line that finished what it was saying. */
+const SENTENCE_END = /[.!?:][)"'\u201d\u2019]?\s*$/;
+
 /** Words that open a clause rather than name an entry. */
 const CLAUSE = /^(?:Hit|Miss|Failure|Success|Trigger|Response|Melee|Ranged|At Will|The|If|On|While|When|Each|Whenever)\b/i;
 
@@ -207,14 +254,24 @@ const CLAUSE = /^(?:Hit|Miss|Failure|Success|Trigger|Response|Melee|Ranged|At Wi
  */
 function splitEntries(block: string): string[] {
   const out: string[] = [];
+  /* Whether the line before this one finished a sentence.
+     A name only begins an entry where a sentence has just ended. Without
+     that, a sentence that wrapped mid-phrase started one of its own: "…within
+     10ft of the Death / Warden. Hit: 12 (2d8+3)…" put an action called Warden
+     into the list, and "…from the Material / Plane or vice versa. If doing so…"
+     added one called Plane or vice versa. Both read as a capitalised name
+     followed by a full stop, because that is exactly what they are — the
+     difference is entirely in what came before them. */
+  let closed = true;
   for (const raw of block.split('\n')) {
     const line = raw.trim();
     if (!line) continue;
     const m = ENTRY_START.exec(line);
     const name = m?.[1] ?? '';
-    const starts = Boolean(m) && name.split(/\s+/).length <= 6 && !CLAUSE.test(name);
+    const starts = Boolean(m) && name.split(/\s+/).length <= 6 && !CLAUSE.test(name) && closed;
     if (starts || !out.length) out.push(line);
     else out[out.length - 1] += ` ${line}`;
+    closed = SENTENCE_END.test(line);
   }
   return out;
 }
@@ -243,7 +300,7 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
     const block = raw.trim();
     if (!block) continue;
 
-    const heading = HEADINGS.find((h) => h.re.test(block));
+    const heading = headingFor(block);
     if (heading) {
       section = heading.section;
       kind = heading.kind ?? 'action';
@@ -252,7 +309,7 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
     /* A heading can share a line with what follows it when the blank line
        between them was lost, which OCR does constantly. */
     const firstLine = block.split('\n')[0]?.trim() ?? '';
-    const lead = HEADINGS.find((h) => h.re.test(firstLine));
+    const lead = headingFor(firstLine);
     if (lead) {
       section = lead.section;
       kind = lead.kind ?? 'action';
@@ -295,7 +352,13 @@ export function parseStatBlock(input: string): ParseResult {
   const report: ParseReport = { took: [], unsure: [], missing: [] };
 
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  block.name = lines[0] ?? 'Monster';
+  /* A printed name is set in small capitals, and recognition hands it back
+     SHOUTING. Only when there is no lower case at all, so a name that was
+     written that way on purpose keeps its own shape. */
+  const printed = lines[0] ?? 'Monster';
+  block.name = /[a-z]/.test(printed) ? printed : printed.toLowerCase()
+    .replace(/\b[a-z]/g, (c) => c.toUpperCase())
+    .replace(/\b(Of|The|And|A|An|In|On|To|From)\b/g, (w, _m, at: number) => (at === 0 ? w : w.toLowerCase()));
   report.took.push(`Name: ${block.name}`);
 
   /* "Huge Dragon, Chaotic Evil" — each part optional, in any of the casings
@@ -315,23 +378,48 @@ export function parseStatBlock(input: string): ParseResult {
     report.missing.push('Size, type and alignment');
   }
 
-  const ac = firstNumber(text, /^\s*(?:Armor Class|AC)\b\s*:?\s*(\d+)/im);
+  /* `\b` does not sit between a letter and a digit, so a label the recogniser
+     ran together with its number — "AC15", "CR5" — matched nothing at all.
+     Every label below allows the space to be missing. */
+  const ac = firstNumber(text, /^\s*(?:Armor Class|AC)\s*:?\s*(\d+)/im);
   if (ac === null) report.missing.push('Armor Class');
-  else { block.acValue = ac; report.took.push(`Armor Class ${ac}`); }
+  else {
+    block.acValue = ac;
+    /* "AC 15 (natural armor)". The bracket has to follow the number with
+       nothing in between, or "AC 13 Initiative +0 (10)" would hand over the
+       initiative roll as the armour it is wearing. */
+    block.acNote = first(text, /^[ \t]*(?:Armor Class|AC)[ \t]*:?[ \t]*\d+[ \t]*\(([^)]+)\)/im) ?? '';
+    report.took.push(`Armor Class ${ac}${block.acNote ? ` (${block.acNote})` : ''}`);
+  }
 
-  const hp = firstNumber(text, /^\s*(?:Hit Points|HP)\b\s*:?\s*(\d+)/im);
+  const hp = firstNumber(text, /^\s*(?:Hit Points|HP)\s*:?\s*(\d+)/im);
   if (hp === null) report.missing.push('Hit Points');
   else { block.hpValue = hp; report.took.push(`Hit Points ${hp}`); }
 
   /* The hit dice state the hit points a second time, so the two can be held
      against each other. A mismatch means one of them was misread. */
-  const formula = first(text, /^\s*(?:Hit Points|HP)\b[^\n(]*\(([^)]*d[^)]*)\)/im);
+  const formula = first(text, /^\s*(?:Hit Points|HP)[^\n(]*\(([^)]*d[^)]*)\)/im);
+  /* A block printed without hit dice should not come back with hit dice. The
+     test is whether anything was in brackets after the hit points, not whether
+     it could be read as dice: "HP 142 (19d8 + 57)" comes back off a picture as
+     "(1948 + 57)" often enough, and the dice were plainly printed. */
+  block.showHitDice = /^[ \t]*(?:Hit Points|HP)[^\n(]*\(/im.test(text);
   if (hp !== null && formula) {
     const average = diceAverage(formula);
     if (average !== null && Math.abs(average - hp) > 2) {
       report.unsure.push(`Hit Points say ${hp} but ${formula.trim()} averages ${average}`);
     }
   }
+
+  /* "Initiative +5 (15)" is a proficiency, not a number the block stores: the
+     editor holds whether the creature is proficient, and works the rest out.
+     Which it is follows from how far the printed bonus sits above what the
+     Dexterity alone would give. */
+  /* Not anchored to the start of a line: this style prints "AC 15  Initiative
+     +5 (15)" as one line, so the label turns up halfway along it. The sign is
+     required, which is what keeps a lair action's "on initiative count 20"
+     from being read as a creature with +20 to go first. */
+  const initiative = firstNumber(text, /\bInitiative\b[ \t]*:?[ \t]*([+-]\d+)/i);
 
   const speed = first(text, /^\s*Speed\b\s*:?\s*(.+)$/im);
   if (speed) {
@@ -358,8 +446,10 @@ export function parseStatBlock(input: string): ParseResult {
 
   /* Proficiency is stated by most blocks and implied by the rest: the table
      fixes it from the challenge rating. */
-  const statedPb = firstNumber(text, /Proficiency Bonus\s*:?\s*\+?(\d+)/i);
-  const cr = first(text, /^\s*(?:Challenge|CR)\b\s*:?\s*([\d/]+)/im);
+  /* "PB +3" is written on its own line in one house style and tucked inside
+     the challenge line's brackets — "CR 5 (XP 1,800; PB +3)" — in another. */
+  const statedPb = firstNumber(text, /(?:Proficiency Bonus|PB)\s*:?\s*\+?(\d+)/i);
+  const cr = first(text, /^\s*(?:Challenge|CR)\s*:?\s*([\d/]+)/im);
   if (statedPb !== null) block.proficiencyBonus = statedPb;
   else if (cr) {
     const value = cr.includes('/') ? 0 : Number(cr);
@@ -376,6 +466,31 @@ export function parseStatBlock(input: string): ParseResult {
       if (new RegExp(`\\b${ABILITY_SHORT[a]}\\w*\\s*[+-]`, 'i').test(saves)) block.saves.push(a);
     }
     if (block.saves.length) report.took.push(`Saving throws ${saves.trim()}`);
+  }
+
+  /* Some blocks have no Saving Throws line at all, because the saves are a
+     column of the ability table:
+
+         MOD SAVE              MOD SAVE
+     STR 19  +4  +4        INT 12  +1  +1
+     WIS 16  +3  +6        CHA 17  +3  +6
+
+     A save that is not simply the modifier is a proficient one, so the two
+     columns disagreeing is the whole signal. Only consulted when there was no
+     Saving Throws line, so a block that has one is left alone. */
+  if (!block.saves.length) {
+    const row = /\b(STR|DEX|CON|INT|WIS|CHA)\b[^\S\n]*\d{1,2}[^\S\n]+([+-][^\S\n]?\d+)[^\S\n]+([+-][^\S\n]?\d+)/gi;
+    const found: Ability[] = [];
+    for (const m of text.matchAll(row)) {
+      const which = ABILITIES.find((a) => ABILITY_LABEL[a].toLowerCase() === (m[1] ?? '').toLowerCase());
+      const mod = Number((m[2] ?? '').replace(/\s+/g, ''));
+      const save = Number((m[3] ?? '').replace(/\s+/g, ''));
+      if (which && Number.isFinite(mod) && Number.isFinite(save) && save !== mod) found.push(which);
+    }
+    if (found.length) {
+      block.saves = found;
+      report.took.push(`Saving throws ${found.map((a) => ABILITY_LABEL[a]).join(', ')}, from the ability table`);
+    }
   }
 
   const skills = header(text, 'Skills');
@@ -402,6 +517,28 @@ export function parseStatBlock(input: string): ParseResult {
   block.resistances = words('Damage Resistances|Resistances');
   block.damageImmunities = words('Damage Immunities');
   block.conditionImmunities = words('Condition Immunities');
+  /* One line for both, divided by a semicolon: "Immunities Necrotic, Poison;
+     Charmed, Frightened, Poisoned". Only consulted when the block did not
+     name the two lists separately, so a block that did is left alone. */
+  if (!block.damageImmunities.length && !block.conditionImmunities.length) {
+    const both = header(text, 'Immunities');
+    if (both) {
+      const [damage, conditions] = both.split(';');
+      const split = (part: string | undefined): string[] => (part ?? '')
+        .split(',').map((x) => x.trim()).filter((x) => x && x !== '—');
+      /* Without a semicolon it is one list, and which list it is depends on
+         what is in it: a condition is a condition wherever it is written. */
+      if (conditions === undefined) {
+        for (const name of split(damage)) {
+          (CONDITIONS.some((c) => c.toLowerCase() === name.toLowerCase())
+            ? block.conditionImmunities : block.damageImmunities).push(name);
+        }
+      } else {
+        block.damageImmunities = split(damage);
+        block.conditionImmunities = split(conditions);
+      }
+    }
+  }
 
   const senses = header(text, 'Senses');
   if (senses) {
@@ -418,10 +555,26 @@ export function parseStatBlock(input: string): ParseResult {
       .filter((x) => x && x !== '—' && !/telepathy/i.test(x));
   }
 
+  if (initiative !== null) {
+    const over = initiative - mods.dex;
+    const pb = block.proficiencyBonus;
+    const tier = Math.abs(over - pb * 2) <= 1 ? 'expertise'
+      : Math.abs(over - pb) <= 1 ? 'proficient'
+        : 'none';
+    block.initiative = tier;
+    if (tier !== 'none') report.took.push(`Initiative +${initiative}, which is ${tier}`);
+  }
+
   /* Everything after the last header line is prose. */
   const end = LAST_HEADER.exec(text);
   const body = end ? text.slice(end.index + end[0].length) : '';
   block.entries = readEntries(body, report);
+  if (block.entries.legendary.length) {
+    const uses = firstNumber(text, /can take (\d+) legendary action/i)
+      ?? firstNumber(text, /Legendary Action Uses:?\s*(\d+)/i);
+    if (uses !== null) block.legendaryCount = Math.max(1, Math.min(5, uses));
+  }
+
   const total = Object.values(block.entries).reduce((a, l) => a + l.length, 0);
   if (total) report.took.push(`${total} traits and actions`);
   else report.missing.push('Traits and actions');

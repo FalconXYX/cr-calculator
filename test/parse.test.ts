@@ -7,6 +7,7 @@
    thousand blocks the parser has never been tuned against. */
 
 import * as S from '../src/lib/statblock.ts';
+import { ABILITIES } from '../src/lib/statblock.ts';
 import type { StatBlock } from '../src/lib/statblock.ts';
 import { toMarkdown, toPlainText } from '../src/lib/statblockText.ts';
 import {
@@ -205,19 +206,24 @@ console.log('\n--- finding the gutter between two columns ---');
 /* The failure this exists for: a two-column block read as one page comes back
    with every line welded to the line beside it — "Armor Class 16 Arcane
    Lance. Ranged Attack Roll: +8" — and nothing downstream can unpick that. */
+const WIDTH = 400;
+const HEIGHT = 100;
+/* Text, not solid blocks: a row through a line of writing catches letter
+   strokes and misses the gaps between them, which is what tells it apart from
+   a ruled line. `rules` draws those, right across the page. */
 const page = (
-  bands: readonly (readonly [number, number])[], width = 400, height = 100,
+  bands: readonly (readonly [number, number])[], rules: readonly number[] = [],
 ): { width: number; height: number; data: number[] } => {
-  const data = new Array<number>(width * height * 4).fill(255);
+  const data = new Array<number>(WIDTH * HEIGHT * 4).fill(255);
+  const mark = (x: number, y: number): void => {
+    const i = (y * WIDTH + x) * 4;
+    data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
+  };
   for (const [from, to] of bands) {
-    for (let y = 0; y < height; y++) {
-      for (let x = from; x < to; x++) {
-        const i = (y * width + x) * 4;
-        data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
-      }
-    }
+    for (let y = 0; y < HEIGHT; y++) for (let x = from; x < to; x += 3) mark(x, y);
   }
-  return { width, height, data };
+  for (const y of rules) for (let x = 0; x < WIDTH; x++) mark(x, y);
+  return { width: WIDTH, height: HEIGHT, data };
 };
 
 const twoCols = gutter(page([[20, 180], [220, 380]]));
@@ -225,17 +231,184 @@ is('two columns are found', Boolean(twoCols), true);
 is('and the cut lands between them',
   twoCols ? twoCols.start >= 180 && twoCols.end <= 220 : false, true);
 
+/* The one that broke the Death Warden. A single rule under the title spans
+   both columns, and counted as ink it leaves no empty band anywhere. */
+const ruled = gutter(page([[20, 180], [220, 380]], [0, 4, 8]));
+is('a rule drawn across both columns does not hide the gutter', Boolean(ruled), true);
+is('and the cut is in the same place',
+  ruled ? ruled.start >= 180 && ruled.end <= 220 : false, true);
+
 is('one column is left alone', gutter(page([[20, 380]])), null);
-is('a page with a wide margin is still one column',
-  gutter(page([[120, 280]])), null);
-/* A narrow word gap is not a gutter. Without a minimum width every space
+is('a page with a wide margin is still one column', gutter(page([[120, 280]])), null);
+/* A word-width gap is not a gutter. Without a minimum width every space
    between two words would be a column boundary. */
 is('a hairline gap is not a gutter', gutter(page([[20, 199], [201, 380]])), null);
-/* Three quarters of the ink on one side means the quiet strip is white space
-   inside a single column, not a division into two. */
+/* Nearly all the ink on one side means the quiet strip is white space inside
+   one column, not a division into two. */
 is('a thin strip beside a block of text is not a second column',
-  gutter(page([[20, 300], [370, 380]])), null);
+  gutter(page([[20, 270], [285, 295]])), null);
 is('a blank page has no gutter', gutter(page([])), null);
+
+console.log('\n--- the terser house style, as recognition gives it back ---');
+/* A real block that read as almost nothing. Every line below is a different
+   thing the parser had never met: labels run together with their numbers,
+   saves living in the ability table, damage and condition immunities sharing
+   one line, a heading mangled by small capitals, and sentences wrapping
+   mid-phrase onto lines that look exactly like new entries. */
+const terse = parseStatBlock([
+  'DEATH WARDEN',
+  '',
+  'Medium Humanoid, Lawful Good',
+  '',
+  'AC15 Initiative +5 (15)',
+  '',
+  'HP 142 (19d8 + 57)',
+  '',
+  'Speed 30 ft.',
+  '',
+  'MOD SAVE MOD SAVE',
+  '',
+  'STR 19 +4 +4 INT 12 +1 +1',
+  'DEX 14 +2 +2 wis 16 +3 +6',
+  'CON 16 +3 +3 CHA 17 +3 +6',
+  '',
+  'Skills Perception +9, Persuasion +6',
+  '',
+  'Resistances Psychic',
+  '',
+  'Immunities Necrotic, Poison; Charmed, Frightened, Poisoned',
+  '',
+  'Senses Truesight 60ft; Passive Perception 19',
+  '',
+  'Languages Common',
+  '',
+  'CR5 (XP 1,800; PB +3)',
+  '',
+  'TRAITS',
+  '',
+  "Warden's Duty. If a creature is killed with the Death Warden's Baleful Scythe, they",
+  'cannot be revived via either Revivify or Raise Dead.',
+  '',
+  'ACTIONS',
+  '',
+  'Baleful Scythe. Melee Weapon Attack: +7 to hit, Each Creature within 10ft of the Death',
+  'Warden. Hit: 12 (2d8+3) Slashing damage and 3 (1d6) Psychic damage.',
+  '',
+  'Bonus AcTioNns',
+  '',
+  'Ethereal Stride. The Death Warden teleports to the Ethereal Plane from the Material',
+  'Plane or vice versa. If doing so moves into the space of another creature then the',
+  'Death Warden is moved to the nearest unoccupied space.',
+].join('\n'));
+const tb = terse.block;
+is('AC15, with no space to find it by', tb.acValue, 15);
+is('HP', tb.hpValue, 142);
+is('PB out of the challenge line brackets', tb.proficiencyBonus, 3);
+is('the ability table reads across two halves',
+  ABILITIES.map((a) => tb.abilities[a]).join(' '), '19 14 16 12 16 17');
+/* No Saving Throws line anywhere: a save that is not simply the modifier is
+   the only thing saying which ones are proficient. */
+is('the saves come out of the table', tb.saves.join(','), 'wis,cha');
+is('and the ones that match their modifier are left out',
+  tb.saves.includes('str'), false);
+is('damage immunities take the first half of the line',
+  tb.damageImmunities.join(','), 'Necrotic,Poison');
+is('and conditions the second', tb.conditionImmunities.join(','), 'Charmed,Frightened,Poisoned');
+is('resistances without the word Damage in front', tb.resistances.join(','), 'Psychic');
+is('truesight', tb.senses.truesight, 60);
+/* "…within 10ft of the Death / Warden. Hit: 12…" is a capitalised word and a
+   full stop, and is not an action. */
+is('a sentence wrapping mid-phrase does not start an entry',
+  tb.entries.action.map((e) => e.name).join(' | '), 'Baleful Scythe | Ethereal Stride');
+is('nor does the second one', tb.entries.action.some((e) => /^Plane/.test(e.name)), false);
+is('the trait survived its own wrap', tb.entries.trait.map((e) => e.name).join(','), "Warden's Duty");
+/* "BONUS ACTIONS" in small capitals came back as "Bonus AcTioNns". */
+is('a heading one letter wrong is still the heading',
+  tb.entries.action.find((e) => e.name === 'Ethereal Stride')?.kind, 'bonus');
+is('nothing was missing', terse.report.missing.join('; ') || '-', '-');
+
+console.log('\n--- copying a block across, not just the parts that score ---');
+/* The point of pasting is that what comes out matches what went in. These are
+   the fields that score nothing and were therefore never read. */
+const copied = parseStatBlock([
+  'JAWSY JESTER',
+  'Medium Aberration, Chaotic Evil',
+  'AC 17 (natural armor) Initiative +6 (16)',
+  'HP 90 (12d8 + 36)',
+  'Speed 30 ft.',
+  'STR 17 DEX 15 CON 16 INT 8 WIS 12 CHA 16',
+  'CR 3 (XP 700; PB +2)',
+  '',
+  'Bite. Melee Attack Roll: +5 to hit, reach 5 ft. Hit: 12 (2d8+3) Piercing damage.',
+  '',
+  'LEGENDARY ACTIONS',
+  '',
+  'The jester can take 2 legendary actions, choosing from the options below.',
+  '',
+  'Caper. The jester moves up to its speed.',
+].join('\n')).block;
+/* Recognition hands back a printed name SHOUTING, because it is set in small
+   capitals. */
+is('a name in capitals is put back into its own case', copied.name, 'Jawsy Jester');
+is('the note in brackets after the armour class comes too', copied.acNote, 'natural armor');
+/* +6 with Dexterity 15 is four above the +2 the ability alone gives, which
+   is a proficiency of +2 counted twice. */
+is('initiative is read as the proficiency it implies', copied.initiative, 'expertise');
+is('and the hit dice are known to have been printed', copied.showHitDice, true);
+is('how many legendary actions a round', copied.legendaryCount, 2);
+
+/* The bracket has to follow the number directly, or the initiative roll would
+   be read as the armour the creature is wearing. */
+const noNote = parseStatBlock([
+  'Goblin', 'Small Humanoid, Neutral Evil', 'AC 13 Initiative +2 (12)', 'HP 7',
+  'Speed 30 ft.', 'STR 8 DEX 15 CON 10 INT 10 WIS 8 CHA 8', 'CR 1/4 (XP 50; PB +2)',
+  '', 'Scimitar. Melee Attack Roll: +4 to hit. Hit: 5 (1d6 + 2) Slashing damage.',
+].join('\n')).block;
+is('an initiative roll is not mistaken for an armour note', noNote.acNote, '');
+is('and hit points with no dice printed do not grow any', noNote.showHitDice, false);
+is('a plain initiative is no proficiency at all', noNote.initiative, 'none');
+
+console.log('\n--- one Immunities line, however it is filled ---');
+/* The label the calculator used to want was "Damage Immunities" or "Condition
+   Immunities" spelled out. A block that writes one "Immunities" line matched
+   neither, and both lists came back empty — so a creature immune to being
+   charmed and frightened arrived with nothing in either box. */
+const immunities = (line: string) => parseStatBlock([
+  'Jawsy Jester', 'Medium Aberration, Chaotic Evil',
+  'AC 13', 'HP 90 (12d8 + 36)', 'Speed 30 ft.',
+  'STR 17 DEX 11 CON 16 INT 8 WIS 12 CHA 16',
+  line,
+  'CR 3 (XP 700; PB +2)', '',
+  'Bite. Melee Attack Roll: +5 to hit, reach 5 ft. Hit: 12 (2d8+3) Piercing damage.',
+].join('\n')).block;
+
+const conditionsOnly = immunities('Immunities Charmed, Frightened');
+is('conditions on a bare Immunities line are filed as conditions',
+  conditionsOnly.conditionImmunities.join(','), 'Charmed,Frightened');
+is('and nothing lands in damage immunities',
+  conditionsOnly.damageImmunities.length, 0);
+
+const damageOnly = immunities('Immunities Necrotic, Poison');
+is('damage types on the same line go the other way',
+  damageOnly.damageImmunities.join(','), 'Necrotic,Poison');
+is('and leave the conditions empty', damageOnly.conditionImmunities.length, 0);
+
+const mixed = immunities('Immunities Necrotic, Poison; Charmed, Frightened');
+is('a semicolon divides the two', mixed.damageImmunities.join(','), 'Necrotic,Poison');
+is('- the second half being the conditions',
+  mixed.conditionImmunities.join(','), 'Charmed,Frightened');
+
+/* A block that does name them separately must not be touched by any of it. */
+const spelled = parseStatBlock([
+  'Lich', 'Medium Undead, Lawful Evil', 'AC 17', 'HP 135 (18d8 + 54)', 'Speed 30 ft.',
+  'STR 11 DEX 16 CON 16 INT 20 WIS 14 CHA 16',
+  'Damage Immunities Poison',
+  'Condition Immunities Charmed, Exhaustion, Frightened, Paralyzed, Poisoned',
+  'Challenge 21 (33,000 XP)', '',
+  'Paralyzing Touch. Melee Attack Roll: +12 to hit. Hit: 10 (3d6) Cold damage.',
+].join('\n')).block;
+is('a block that spells both out is left alone',
+  `${spelled.damageImmunities.join(',')} / ${spelled.conditionImmunities.length}`, 'Poison / 5');
 
 console.log('\n--- a header line that wrapped ---');
 /* Printed blocks wrap Skills, Languages and the damage lists constantly, and
