@@ -214,7 +214,7 @@ function headingFor(line: string): Heading | null {
 }
 
 /** The line that ends the header block and starts the prose. */
-const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)(?![a-z])[^\n]*$/im;
+const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)(?![a-z])[^\n]*$/gim;
 
 /* Everything that announces itself at the start of a line in the top half of
    a block. Used to tell a header apart from the tail of the one above it. */
@@ -329,7 +329,12 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
       const list = entries[section];
       const previous = list[list.length - 1];
       if (previous) previous.text = `${previous.text}\n\n${block.trim()}`;
-      else unnamed += 1;
+      /* The sentence that opens a legendary section — "The empty swarm can
+         take 2 legendary actions, choosing from the options below" — is the
+         one paragraph that is meant to have no name. It belongs to the block
+         rather than to any entry, and the count has already been read out of
+         it, so it is neither filed nor complained about. */
+      else if (!(section === 'legendary' && /legendary action/i.test(block))) unnamed += 1;
       return;
     }
     entries[section].push({
@@ -565,8 +570,15 @@ export function parseStatBlock(input: string): ParseResult {
     if (tier !== 'none') report.took.push(`Initiative +${initiative}, which is ${tier}`);
   }
 
-  /* Everything after the last header line is prose. */
-  const end = LAST_HEADER.exec(text);
+  /* Everything after the last header line is prose — the LAST one, which is
+     why the pattern is global and the loop runs to the end. Challenge and
+     Proficiency Bonus are each other's neighbours and the order varies, so
+     stopping at the first match left "Proficiency Bonus +5" sitting at the
+     top of the body, where it was welded onto the opening trait and produced
+     one called "Proficiency Bonus +5 Aura of Emptiness". */
+  LAST_HEADER.lastIndex = 0;
+  let end: RegExpExecArray | null = null;
+  for (let m = LAST_HEADER.exec(text); m; m = LAST_HEADER.exec(text)) end = m;
   const body = end ? text.slice(end.index + end[0].length) : '';
   block.entries = readEntries(body, report);
   if (block.entries.legendary.length) {

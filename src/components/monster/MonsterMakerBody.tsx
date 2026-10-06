@@ -51,6 +51,8 @@ import {
 } from "../../lib/parseStatBlock.ts";
 import type { ParseReport } from "../../lib/parseStatBlock.ts";
 import { imageFrom, readImage, warmUp } from "../../lib/ocr.ts";
+import { forgetMonster, saveMonster, savedMonsters } from "../../lib/library.ts";
+import type { SavedMonster } from "../../lib/library.ts";
 import { StatBlockPreview } from "./StatBlockPreview.tsx";
 import {
   CatalogPicker,
@@ -342,6 +344,16 @@ export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
     return [adventures ? templates : books, templates.length - books.length] as const;
   }, [templates, adventures]);
 
+  /* The shelf. Held in state rather than read on every render so that saving
+     and forgetting show up at once; the library itself is the record. */
+  const [library, setLibrary] = useState<SavedMonster[]>(() => savedMonsters());
+  const keep = useCallback(() => setLibrary(saveMonster(sb)), [sb]);
+  const forget = useCallback((name: string) => setLibrary(forgetMonster(name)), []);
+  const already = useMemo(
+    () => library.some((m) => m.name.toLowerCase() === (sb.name.trim() || "Monster").toLowerCase()),
+    [library, sb.name],
+  );
+
   const pickTemplate = (option: CatalogOption) => {
     const t = pool?.find((x) => x.id === option.id);
     if (!t) return;
@@ -602,9 +614,10 @@ export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
 
           {replaced && (
             <p className="mm-note">
-              Loaded <b>{replaced.name}</b>, published at CR {replaced.cr}.
-              The Challenge line below is what this calculator makes of it,
-              not what the book says — the two are allowed to disagree.{" "}
+              Loaded <b>{replaced.name}</b>
+              {replaced.cr ? `, published at CR ${replaced.cr}` : ""}. The
+              Challenge line below is what this calculator makes of it
+              {replaced.cr ? ", not what the book says — the two are allowed to disagree" : ""}.{" "}
               <button
                 type="button"
                 className="mini"
@@ -634,6 +647,46 @@ export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
             }
             onPick={pickTemplate}
           />
+        </Section>
+
+        <Section {...sec("saved", "Saved Monsters", library.length)}>
+          <p className="mm-note">
+            Kept in this browser, not on a server. Saving under a name that is
+            already here replaces it, so a second pass at the same creature
+            does not leave two of them on the shelf.
+          </p>
+          <button type="button" className="mini mm-add" onClick={keep}>
+            {already
+              ? `Replace ${sb.name.trim() || "Monster"}`
+              : `Save ${sb.name.trim() || "Monster"}`}
+          </button>
+          {library.length > 0 && (
+            <div className="mm-entries">
+              {library.map((m) => (
+                <div className="mm-saved" key={m.name}>
+                  <button
+                    type="button"
+                    className="mm-saved-name"
+                    title={`Load ${m.name} into the editor`}
+                    onClick={() => {
+                      setReplaced({ name: m.name, cr: "", previous: sb });
+                      onChange(m.block);
+                      onScore(m.block);
+                    }}
+                  >
+                    {m.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="mini danger"
+                    onClick={() => forget(m.name)}
+                  >
+                    Forget
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
 
         <Section {...sec("description", "Description")}>

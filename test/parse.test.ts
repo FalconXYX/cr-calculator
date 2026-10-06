@@ -368,6 +368,81 @@ is('an initiative roll is not mistaken for an armour note', noNote.acNote, '');
 is('and hit points with no dice printed do not grow any', noNote.showHitDice, false);
 is('a plain initiative is no proficiency at all', noNote.initiative, 'none');
 
+console.log('\n--- a block this app printed itself, read back in ---');
+/* The strictest case there is: the Monster Maker's own two-column export,
+   through the recogniser and back. Nothing here should be lost. */
+const own = parseStatBlock([
+  'EMPTY SWARM',
+  'Large Aberration, Chaotic Evil',
+  'Armor Class 15',
+  'Initiative +6 (16)',
+  'Hit Points 218 (23d10 + 92)',
+  'Speed 40 ft.',
+  'STR DEX CON INT wis CHA',
+  '',
+  '20(5) 12+)  18(+4) 18(+4) 14(+2)  6(2)',
+  'Saving Throws Con +9, Int +9',
+  'Damage Resistances Bludgeoning, Piercing, Slashing, Psychic',
+  'Damage Immunities Poison',
+  'Condition Immunities Charmed, Frightened, Grappled,',
+  'Paralyzed, Petrified, Poisoned, Prone, Restrained, Stunned',
+  'Senses Blindsight 60 ft., Darkvision 60 ft., passive Perception 12',
+  'Languages Telepathy 60 ft.',
+  'Challenge 15 (13,000 XP)',
+  'Proficiency Bonus +5',
+  '',
+  'Aura of Emptiness. Constitution Saving Throw: DC 17, any creature that starts its turn nearby.',
+  '',
+  'Swarm. The swarm can occupy another creature\u2019s space and vice versa.',
+  '',
+  'ACTIONS',
+  '',
+  'Multiattack. The swarm makes three Engulfing Grasp or Mind Melting Ray attacks.',
+  '',
+  'Engulfing Grasp. Melee Attack Roll: +10, reach 5 ft. Hit: 18 (3d8 + 5) Bludgeoning damage.',
+  '',
+  'LEGENDARY ACTIONS',
+  '',
+  'The empty swarm can take 2 legendary actions, choosing from the options below.',
+  '',
+  'Charging Grasp. The swarm can move up to its speed and make an Engulfing Grasp attack.',
+].join('\n')).block;
+const ownReport = parseStatBlock([
+  'Challenge 15 (13,000 XP)', 'Proficiency Bonus +5', '',
+  'Aura of Emptiness. Constitution Saving Throw: DC 17.',
+].join('\n')).report;
+
+is('the name comes back out of capitals', own.name, 'Empty Swarm');
+is('armour class and hit points', `${own.acValue}/${own.hpValue}`, '15/218');
+/* Recognition mangles the brackets around the modifiers — "20 (+5)" arrives
+   as "20(5)" and "6 (-2)" as "6(2)" — and the scores still have to survive. */
+is('the ability scores survive mangled brackets',
+  ABILITIES.map((a) => own.abilities[a]).join(' '), '20 12 18 18 14 6');
+is('initiative is the proficiency it implies', own.initiative, 'proficient');
+is('saves', own.saves.join(','), 'con,int');
+is('four resistances', own.resistances.length, 4);
+is('and nine condition immunities across a wrapped line',
+  own.conditionImmunities.length, 9);
+is('both kinds of sight', `${own.senses.blindsight}/${own.senses.darkvision}`, '60/60');
+is('telepathy out of the languages line', own.telepathy, 60);
+/* Challenge and Proficiency Bonus are neighbours and the order varies, so
+   stopping at the first of them left the other at the head of the prose. */
+is('the proficiency line does not become part of the first trait',
+  own.entries.trait[0]?.name, 'Aura of Emptiness');
+is('- and the trait list is otherwise whole',
+  own.entries.trait.map((e) => e.name).join(','), 'Aura of Emptiness,Swarm');
+is('actions', own.entries.action.map((e) => e.name).join(','), 'Multiattack,Engulfing Grasp');
+is('legendary actions, and how many a round',
+  `${own.entries.legendary.map((e) => e.name).join(',')} x${own.legendaryCount}`,
+  'Charging Grasp x2');
+/* The sentence opening a legendary section is the one paragraph meant to have
+   no name, so it is not reported as something that could not be filed. */
+is('the legendary preamble is not complained about',
+  own.entries.legendary.length > 0
+  && !parseStatBlock('x').report.unsure.some((u) => /no name in front/.test(u)), true);
+is('a block with nothing after its headers still reports cleanly',
+  ownReport.missing.includes('Traits and actions'), false);
+
 console.log('\n--- one Immunities line, however it is filled ---');
 /* The label the calculator used to want was "Damage Immunities" or "Condition
    Immunities" spelled out. A block that writes one "Immunities" line matched

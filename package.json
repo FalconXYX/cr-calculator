@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts && node --experimental-strip-types test/catalog.test.ts && node --experimental-strip-types test/parse.test.ts",
+    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts && node --experimental-strip-types test/catalog.test.ts && node --experimental-strip-types test/parse.test.ts && node --experimental-strip-types test/library.test.ts",
     "bestiary": "node tools/build-bestiary.mjs"
   },
   "dependencies": {

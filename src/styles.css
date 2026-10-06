@@ -932,6 +932,33 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
 .mini.danger:hover:not(:disabled) { border-color: var(--result); color: var(--result); }
 .mm-add { align-self: flex-start; margin-top: 2px; }
 
+/* One shelved monster: its name is the button that loads it, which gives the
+   row a target the width of the pane rather than a word to aim at. */
+.mm-saved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.mm-saved-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 14.5px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.mm-saved-name:hover { color: var(--accent); }
+.mm-saved .mini { flex: none; }
+
 /* A file input that reads as a button, since the real one is unstyleable. */
 .mm-pick { position: relative; overflow: hidden; display: inline-block; }
 .mm-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
