@@ -9,11 +9,31 @@
    a d4 for one of four effects; adding all four gave 161 when the worst of
    them deals 45, which is most of a challenge rating. */
 
-/** Average damage stated as "10 (2d6 + 3)", or worked out when only dice are given. */
-const DICE = /(?:(\d+)\s*)?\(\s*(\d+)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?\s*\)/g;
+/**
+ * Damage, in the two shapes a stat block writes it.
+ *
+ * First the usual "10 (2d6 + 3)". The close tolerates words before the
+ * bracket shuts — "13 (3d6 + 3 necrotic damage)" is printed that way and used
+ * to read as nothing — but refuses to run past a second dice term, so a menu
+ * written inside one bracket pair stays a menu rather than becoming a sum.
+ *
+ * Then a flat number with no dice behind it: "Hit: 4 Bludgeoning damage",
+ * which is how the smallest creatures in the game state their only attack,
+ * and which read as zero. It is anchored on a lead-in that means damage is
+ * being dealt — unanchored, it reads thresholds, damage to objects and the
+ * extra dice on a critical hit as though the creature dealt them every round.
+ */
+const DAMAGE_TYPE = '(?:Acid|Bludgeoning|Cold|Fire|Force|Lightning|Necrotic|Piercing|Poison|Psychic|Radiant|Slashing|Thunder)';
+const DICE = new RegExp(
+  '(?:(\\d+)\\s*)?\\(\\s*(\\d+)\\s*d\\s*(\\d+)\\s*(?:([+-])\\s*(\\d+))?(?:(?!\\d+\\s*d\\s*\\d)[^)])*\\)'
+  + `|(?<=\\b(?:Hit|Failure):\\s|\\bplus\\s)(\\d+)(?=\\s+(?:${DAMAGE_TYPE}\\s+)?damage\\b)`,
+  'g');
 
 /** What one expression averages to. A stated average wins over the dice. */
 function averageOf(m: RegExpMatchArray): number {
+  /* The flat branch first: it is the only group set when it matched, and the
+     dice branch's groups are all undefined behind it. */
+  if (m[6] !== undefined) return parseInt(m[6], 10);
   if (m[1] !== undefined) return parseInt(m[1], 10);
   const count = parseInt(m[2]!, 10);
   const size = parseInt(m[3]!, 10);
@@ -248,6 +268,16 @@ export interface RoutinePart {
 /** The attack routine a Multiattack line describes. */
 export interface Routine {
   /**
+   * An attack the creature may swap in for one of the others.
+   *
+   * "…makes three Engulfing Grasp or Mind Melting Ray attacks and can replace
+   * one with Beckoning Wave." The replacement is not an extra attack: it buys
+   * a seat the other attacks would have had. Adding it would overrate the
+   * creature by a whole attack; ignoring it, which is what used to happen,
+   * underrates every creature whose swap is the heavier option.
+   */
+  sub?: RoutinePart;
+  /**
    * Alternative routines, of which the creature runs one.
    *
    * A barbed devil "makes one Claws attack and one Tail attack, or it makes
@@ -256,8 +286,6 @@ export interface Routine {
    */
   branches: RoutinePart[][];
 }
-
-const single = (times: number, names: string[]): Routine => ({ branches: [[{ times, names }]] });
 
 function countOf(word: string): number | undefined {
   return COUNTS[word.trim().toLowerCase().replace(/\s+times$/, '')];
@@ -349,8 +377,31 @@ const COMBINATION = new RegExp(
   + ',?\\s+(?:in any combination|or a combination|or any combination)',
   'gi');
 
-/** "and it uses Dreadful Glare" — one more action, on top of the attacks. */
-const ALSO_USES = /(?:\band|\.)\s+(?:it\s+)?uses\s+([A-Z][^,.]*?)(?=[.,]|$)/gi;
+/**
+ * "and it uses Dreadful Glare", "and then uses Stomp", "; she can also use
+ * Hurl Flame" — one more action, on top of the attacks.
+ *
+ * The old pattern wanted the bare word "uses" preceded by "and" or a full
+ * stop, which missed every variation the books actually print.
+ */
+const ALSO_USES = /(?:\band|\.|;)\s+(?:it|he|she|they|the\s+\w+)?\s*(?:also\s+|then\s+)?(?:can\s+(?:also\s+)?)?use[sd]?\s+(?:its\s+|his\s+|her\s+|the\s+ability\s+)?([A-Z][^,.]*?)(?=[.,]|$)/g;
+
+/** "…if available", "…to cast Fireball" — a condition on the use, not its name. */
+const QUALIFIER = /\s+(?:if\s+(?:it'?s\s+|it\s+is\s+)?(?:available|able)|to\s+cast\b.*)$/i;
+
+/**
+ * "uses its Eye Rays three times" — one action, done more than once.
+ *
+ * This used to be an early return at the top of parseMultiattack, which threw
+ * away every attack in the same sentence: a creature that makes two longsword
+ * attacks AND uses Strength Drain once scored the Strength Drain alone. It is
+ * now read per sentence and joined to the branches that sentence built.
+ *
+ * The shape test on the name is what keeps "Spellcasting. The lich also uses
+ * Psychic Whisper" out while letting "its Eye Ray" through.
+ */
+const REPEATED = /\buses?\s+(?:(?:its|his|her|their|the)\s+)?(.+?)\s+(once|twice|thrice|(?:one|two|three|four|five|six)\s+times)\b/gi;
+const PLAIN_NAME = /^[A-Za-z][A-Za-z'\u2019\- ]*$/;
 
 function clauses(text: string, pattern: RegExp): RoutinePart[][] {
   const branches: RoutinePart[][] = [];
@@ -378,31 +429,138 @@ function clauses(text: string, pattern: RegExp): RoutinePart[][] {
  * hydra, which makes as many bites as it has heads. Anything this cannot
  * read comes back null, to be reported rather than guessed at.
  */
-export function parseMultiattack(text: string): Routine | null {
-  /* "uses Eye Rays three times" — the whole routine is one action, repeated. */
-  const repeated = /uses\s+(.+?)\s+(once|twice|\w+\s+times)\b/i.exec(text);
-  if (repeated) {
-    const times = countOf(repeated[2]!);
-    if (times) return single(times, [repeated[1]!.trim()]);
-  }
+/**
+ * Words that are grammar rather than the name of anything.
+ *
+ * "The amphisbaena makes two attacks, only one of which can be a constrict
+ * attack" used to come back as one attack called "of which can be a
+ * constrict", because a pattern that matched was taken as a pattern that
+ * worked. The cascade below now looks at what came back, not merely that
+ * something did, and falls through to a blunter reading instead.
+ *
+ * A closed list on purpose. The tempting version — "drop any name the stat
+ * block has no action for" — would tie this reader to the creature it is
+ * reading, and it has no business knowing that.
+ */
+const NOT_A_NAME = /^(?:of (?:which|these|those|the|them)\b|attack with\b|can\b|the ability\b|either\b)/i;
 
-  /* "makes one Ram attack, one Bite attack, and one Claw attack" — and the
-     same again after an "or", which starts a routine of its own. */
-  const branches = clauses(text, CLAUSE);
-  if (!branches.length) branches.push(...clauses(text, COMBINATION));
-  if (!branches.length) branches.push(...clauses(text, WITH_CLAUSE));
-  if (!branches.length) branches.push(...clauses(text, CLAUSE_ANY_CASE));
-  if (!branches.length) branches.push(...clauses(text, ANY_COMBINATION));
-  if (!branches.length) branches.push(...clauses(text, ADVERB_CLAUSE));
-  if (!branches.length) branches.push(...clauses(text, BARE_CLAUSE));
+/**
+ * "…and can replace one of them with a Spellcasting attack."
+ *
+ * Cut out of the sentence before any clause pattern sees it, because left in
+ * it reads as one more attack and the creature is scored for an attack it
+ * never makes.
+ */
+const SUBSTITUTION = /,?\s*(?:and\s+)?(?:it\s+|he\s+|she\s+|they\s+)?can\s+replace\s+([^.]*?)(?=\.|$)/i;
+const SUB_COUNT = /\b(one|two|three|any one|a single)\b/i;
+/* The name after "with". The first form stops at an " or " so that the 2025
+   metallic dragons — "replace one attack with a use of Sleep Breath or
+   Weakening Breath" — give a name rather than "Sleep Breath or". */
+const SUB_NAME = [
+  /\bwith\s+(?:a\s+use\s+of\s+|an?\s+|its\s+|the\s+)?([A-Z][^,.]*?)\s+or\s+/,
+  /\bwith\s+(?:a\s+use\s+of\s+|an?\s+|its\s+|the\s+)?([A-Z][^,.]*?)(?=\s+attack\b|[,.]|$)/,
+];
+
+/** A sentence that starts a second routine rather than continuing the first. */
+const ALTERNATIVE = /(?:\.\s*)?\bAlternatively\b\s*,?\s*|\.\s+Or\s+/g;
+
+/**
+ * The wordings, tried from the most specific to the bluntest.
+ *
+ * The first pattern that comes back holding something nameable wins. Before
+ * this the first pattern that came back at all won, so a precise pattern that
+ * matched the wrong words blocked a blunt one that would have matched the
+ * right ones.
+ */
+/**
+ * "makes two Hooves attacks, two Moon Bolt attacks, or one of each."
+ *
+ * Three routines, not one of four attacks. Read as a plain list the comma
+ * makes the first two add up and the creature is scored for twice the attacks
+ * it has seats for. The mixed branch has to be built rather than dropped: it
+ * is the heaviest of the three whenever the two attacks differ.
+ */
+function oneOfEach(segment: string, built: RoutinePart[][]): RoutinePart[][] {
+  if (!/\bor one of each\b/i.test(segment)) return built;
+  const parts = built.flat();
+  if (parts.length !== 2) return built;
+  const [a, b] = parts as [RoutinePart, RoutinePart];
+  return [[a], [b], [{ times: 1, names: a.names }, { times: 1, names: b.names }]];
+}
+
+function cascade(segment: string): RoutinePart[][] {
+  for (const pattern of [
+    CLAUSE, COMBINATION, WITH_CLAUSE, CLAUSE_ANY_CASE,
+    ANY_COMBINATION, ADVERB_CLAUSE, BARE_CLAUSE,
+  ]) {
+    const found = clauses(segment, pattern)
+      .map((branch) => branch.filter((part) => !NOT_A_NAME.test(part.names[0] ?? '')))
+      .filter((branch) => branch.length);
+    if (found.length) return oneOfEach(segment, found);
+  }
+  return [];
+}
+
+export function parseMultiattack(raw: string): Routine | null {
+  /* An em or en dash where a comma belongs. The 2014 medusa writes its two
+     alternative routines either side of a dash pair — "either three melee
+     attacks—one with its snake hair and two with its shortsword—or two ranged
+     attacks" — and every clause pattern stops at a comma, not a dash, so the
+     "or" between the halves was invisible and the two were added together.
+     Action names use the hyphen-minus, which is a different character. */
+  const dashed = raw.replace(/\s*[\u2014\u2013]\s*/g, ', ');
+
+  const swap = SUBSTITUTION.exec(dashed);
+  let sub: RoutinePart | undefined;
+  if (swap) {
+    const clause = swap[1] ?? '';
+    const named = SUB_NAME.map((re) => re.exec(clause)?.[1]?.trim()).find(Boolean);
+    if (named) {
+      sub = { times: countOf(SUB_COUNT.exec(clause)?.[1]?.replace(/^(?:any |a )/, '') ?? 'one') ?? 1, names: [named] };
+    }
+  }
+  const text = swap
+    ? `${dashed.slice(0, swap.index)} ${dashed.slice(swap.index + swap[0].length)}`
+    : dashed;
+
+  /* Each sentence of alternatives read on its own, so that a creature whose
+     halves are worded differently gets the right pattern for each. */
+  const branches: RoutinePart[][] = [];
+  for (const segment of text.split(ALTERNATIVE)) {
+    if (!segment || segment.trim().length < 5) continue;
+    const built = cascade(segment);
+    /* Scoped to this sentence: a repeat written in the second alternative
+       must not be added to a routine built from the first. */
+    REPEATED.lastIndex = 0;
+    for (const m of segment.matchAll(REPEATED)) {
+      const times = countOf(m[2]!);
+      const name = m[1]!.trim();
+      if (!times || !PLAIN_NAME.test(name)) continue;
+      const part: RoutinePart = { times, names: [name] };
+      if (!built.length) built.push([part]);
+      else if (OR_TAIL.test(segment.slice(0, m.index ?? 0).trim())) built.push([part]);
+      else for (const branch of built) branch.push(part);
+    }
+    branches.push(...built);
+  }
   if (!branches.length) return null;
 
   /* Something used alongside the attacks belongs to every routine on offer. */
   for (const m of text.matchAll(ALSO_USES)) {
-    const part: RoutinePart = { times: 1, names: [m[1]!.trim()] };
-    for (const branch of branches) branch.push(part);
+    const names = splitNames(
+      m[1]!.replace(QUALIFIER, '').replace(/^either\s+/i, '').trim(),
+    );
+    if (!names.length) continue;
+    const part: RoutinePart = { times: 1, names };
+    /* The same use, counted twice. ALSO_USES sees "uses its Eye Ray twice"
+       as well, and the repeat loop above has already spent it. */
+    const bare = names[0]!.replace(/\s+(?:once|twice|thrice|\w+\s+times)$/i, '').toLowerCase();
+    for (const branch of branches) {
+      if (branch.some((held) => held.names.some((n) => n.toLowerCase() === bare))) continue;
+      branch.push(part);
+    }
   }
-  return { branches };
+  return sub ? { branches, sub } : { branches };
 }
 
 /** "(Recharge 5-6)", "(1/Day)" — something the creature cannot do every round. */

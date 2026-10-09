@@ -1,4 +1,4 @@
-import type { CrRow, Tier } from './types.ts';
+import type { CrRow, Tier, TierId } from './types.ts';
 
 /* Monster Statistics by Challenge Rating.
    `i` is the rung on the CR ladder — CR adjustments move by rungs, not by
@@ -51,3 +51,33 @@ export const TIERS: Tier[] = [
   { id:'11-16', label:'CR 11-16', min:11, max:16,       resist:1.25, immune:1.5,  fortHP:21, lowLevel:false },
   { id:'17+',   label:'CR 17+',   min:17, max:Infinity, resist:1,    immune:1.25, fortHP:28, lowLevel:false },
 ];
+
+/** Which band a rating falls in. */
+export const tierForCr = (value: number): TierId =>
+  (TIERS.find((t) => value >= t.min && value <= t.max) ?? TIERS[0]!).id;
+
+/**
+ * Which band a creature belongs to, judged by its proficiency bonus.
+ *
+ * The proficiency bonus is the one number on a stat block that states the
+ * creature's rating outright: the table gives +2 to CR 0-4, +3 to 5-8, +4 to
+ * 9-12, +5 to 13-16 and so on, and across every creature in print it agrees
+ * with the published rating without exception. The printed Challenge line
+ * does not survive a round trip through this app, and a guess made from the
+ * creature's own hit points and damage argues with itself; this does neither.
+ *
+ * +4 is the one that cannot be exact, because it covers CR 9 to 12 and the
+ * band boundary falls inside it. It is read as 5-10, which is right for nine
+ * and ten of the twelve ratings it spans.
+ *
+ * Guarded rather than trusting, because nothing on the way in validates the
+ * field: reviveStatBlock lets proficiencyBonus through its plain spread, so a
+ * monster restored from browser storage can hand over the string '5'. Left
+ * ungreeted, that and NaN would both land in '17+', which is the band that
+ * takes the most away from a creature.
+ */
+export function tierForProficiency(pb: number): TierId {
+  const n = Math.round(Number(pb));
+  if (!Number.isFinite(n)) return '0-4';
+  return n <= 2 ? '0-4' : n <= 4 ? '5-10' : n <= 5 ? '11-16' : '17+';
+}

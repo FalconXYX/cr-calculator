@@ -45,10 +45,32 @@ export interface ParseResult {
 export function normalize(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
+    /* Every space that is not a space. A non-breaking space is what you get
+       from a PDF, from Google Docs, from Word and from most HTML, and the
+       patterns below are written with a literal ' ' between a label and its
+       number — so "Armor Class\u00a015" matched nothing at all and the
+       armour class and hit points of practically every pasted block were
+       lost. Zero-width characters are deliberately not in this list: folding
+       one to a space would insert a word break that was never there. */
+    .replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, ' ')
+    /* An HTML tag becomes a line break rather than nothing, so that
+       "</h4><p>" leaves the label and its value on separate lines where they
+       can still be paired. The required letter after "<" is what keeps this
+       off a stray bracket and off "< 5 ft.". */
+    .replace(/<\/?(?:[a-z][a-z0-9]*)(?:\s[^<>]*)?\/?>/gi, '\n')
     /* Homebrewery's blockquote gutter, and markdown headings. */
     .replace(/^[ \t]*>[ \t]?/gm, '')
     .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
     .replace(/^[ \t]*[-*][ \t]+/gm, '')
+    /* Homebrewery v3's own dressing: column breaks, and the brace tokens that
+       open and close a styled block. The TOKENS go, not the lines they sit
+       on — wrapping one action in a note is ordinary practice, and dropping
+       the line would take the action with it. */
+    .replace(/^[ \t]*:{3,}[ \t]*$/gm, '')
+    .replace(/^[ \t]*\\column[ \t]*$/gm, '')
+    .replace(/\{\{[a-zA-Z0-9,:#_-]*[ \t]?/g, '')
+    .replace(/\}\}/g, '')
+    .replace(/[ \t]*::[ \t]*/g, ' ')
     /* A markdown table's separator row carries no words. */
     .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/gm, '')
     .replace(/^[ \t]*_{3,}[ \t]*$/gm, '')
@@ -57,6 +79,15 @@ export function normalize(text: string): string {
     .replace(/\*{1,3}/g, '')
     .replace(/(^|\s)_(\S)/g, '$1$2')
     .replace(/(\S)_(\s|$)/g, '$1$2')
+    /* A letter standing in for a digit. Recognition reads 0 as o or O, 1 as
+       l or I and 5 as S, so "Speed 4o ft." loses its speed silently — the
+       parser reports that it read everything and the number is simply wrong,
+       which is worse than reporting nothing at all. Only inside a short
+       token holding nothing but these letters and digits, and only where a
+       digit is already there, so an ordinary word is never touched. */
+    .replace(/\b[0-9oOlIS]{1,4}\b/g, (tok) => (/[0-9]/.test(tok) && /[oOlIS]/.test(tok)
+      ? tok.replace(/[oO]/g, '0').replace(/[lI]/g, '1').replace(/S/g, '5')
+      : tok))
     .replace(/[–—]/g, '–')
     .replace(/[ \t]+/g, ' ')
     .replace(/[ \t]+$/gm, '')
@@ -82,6 +113,16 @@ export function looksLikeStatBlock(text: string): boolean {
 const first = (text: string, re: RegExp): string | null => re.exec(text)?.[1] ?? null;
 
 /**
+ * A field that says the creature has none of whatever this is.
+ *
+ * Blocks write it as a dash, and which dash varies by who printed it — so a
+ * comparison against one literal character let the other two through, and
+ * seven hundred creatures came back from their own round trip speaking a
+ * language called "\u2013".
+ */
+const isNothing = (x: string): boolean => !x || /^(?:[-\u2013\u2014]+|none|n\/a)$/i.test(x);
+
+/**
  * A header line, and whatever wrapped off the end of it.
  *
  * "Skills Animal Handling +5, Arcana +8, Deception +7," with "Perception +5"
@@ -101,6 +142,16 @@ function header(text: string, label: string): string | null {
     for (let j = i + 1; j < lines.length; j++) {
       const next = lines[j]!;
       if (!next.trim()) break;
+      /* A label that stood alone on its line. D&D Beyond's copy-paste puts
+         "Saving Throws" on one line and "Con +8, Wis +4" on the next, and the
+         break below rejects that continuation because it opens with an
+         ability abbreviation — which is also a header label. Only where
+         nothing at all was read from the label's own line, and only for lines
+         that could not be anything but a value. */
+      if (!value && /^[ \t]*(?:Str|Dex|Con|Int|Wis|Cha|Darkvision|Blindsight|Tremorsense|Truesight)\b/i.test(next)) {
+        value = next.trim();
+        continue;
+      }
       if (HEADER_LABEL.test(next) || headingFor(next) || ENTRY_START.test(next)) break;
       value += ` ${next.trim()}`;
     }
@@ -134,9 +185,24 @@ export function diceAverage(formula: string): number | null {
  * particular — so that case is spotted by the names running together with no
  * digits between them, and the scores are matched by position instead.
  */
+/** The six labels in order, whatever punctuation recognition put between them. */
+const ABILITY_HEADER = 'STRDEXCONINTWISCHA';
+
+/** The long forms, for a block that spells them out. */
+const ABILITY_WORD: Record<Ability, string> = {
+  str: 'STR|Strength', dex: 'DEX|Dexterity', con: 'CON|Constitution',
+  int: 'INT|Intelligence', wis: 'WIS|Wisdom', cha: 'CHA|Charisma',
+};
+
 function readAbilities(text: string): Record<Ability, number> | null {
-  const header = new RegExp(ABILITIES.map((a) => ABILITY_LABEL[a]).join('\\s+'), 'i');
-  const headerAt = header.exec(text);
+  /* The header found by reduction rather than by pattern: one stray mark
+     between two labels used to cost all six scores, which then silently
+     became 10 apiece. */
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.replace(/[^A-Za-z]/g, '').toUpperCase() === ABILITY_HEADER);
+  const headerAt = at >= 0
+    ? { index: lines.slice(0, at).join('\n').length + (at ? 1 : 0), 0: lines[at]! }
+    : null;
   if (headerAt) {
     /* Each cell states the score and then the modifier it implies — "18 (+4)"
        — and only the first of those is the score. The bracket goes, and a
@@ -144,15 +210,28 @@ function readAbilities(text: string): Record<Ability, number> | null {
     const after = text
       .slice(headerAt.index + headerAt[0].length)
       .replace(/\([^)]*\)/g, ' ');
-    const numbers = [...after.matchAll(/(?<![+-])\b(\d{1,2})\b/g)].slice(0, 6).map((m) => Number(m[1]));
+    /* Only the two lines under the header. Reaching further for a sixth
+       number is how a block with a gap in its table ends up wearing numbers
+       from the prose below it. */
+    const near = after.split('\n').slice(0, 3).join(' ');
+    const numbers = [...near.matchAll(/(?<![+-])\b(\d{1,2})\b/g)].slice(0, 6).map((m) => Number(m[1]));
     if (numbers.length === 6) {
       return Object.fromEntries(ABILITIES.map((a, i) => [a, numbers[i]!])) as Record<Ability, number>;
     }
+    /* Six were not there. Fall through to reading each by its own label,
+       which is slower to satisfy and impossible to get out of order. */
   }
 
   const out = {} as Record<Ability, number>;
   for (const a of ABILITIES) {
-    const n = firstNumber(text, new RegExp(`\\b${ABILITY_LABEL[a]}\\b[^0-9a-z]{0,12}(\\d{1,2})\\b`, 'i'));
+    /* The gap used to be `[^0-9a-z]`, and the `i` flag applies inside a
+       negated class too — so it excluded capitals as well and the gap could
+       hold no letters at all. "STR MOD 18" has MOD in the way and returned
+       nothing, which silently became a score of 10. The class now excludes
+       only digits, which the flag cannot touch, so the flag is free to do
+       the one job it was there for: matching a label OCR gave back as
+       "wis". */
+    const n = firstNumber(text, new RegExp(`\\b(?:${ABILITY_WORD[a]})\\b[^0-9\\n]{0,12}(\\d{1,2})\\b`, 'i'));
     if (n === null) return null;
     out[a] = n;
   }
@@ -322,7 +401,16 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
   }
 
   function pushEntry(block: string): void {
-    const m = ENTRY.exec(block.replace(/\n/g, ' '));
+    const flat = block.replace(/\n/g, ' ');
+    const found = ENTRY.exec(flat);
+    /* A colon is not a full stop. "At Will: Detect Magic, Disguise Self" is
+       the second half of a Spellcasting entry, not an action called At Will;
+       so is a spell list's level heading, and so is "Failure:". Where the
+       section already holds something, a colon-named paragraph belongs to it.
+       A full stop still names an entry, because that is how a stat block
+       announces one. */
+    const colonNamed = Boolean(found) && /^[A-Z][^.\n]{0,58}?:/.test(flat);
+    const m = colonNamed && entries[section].length ? null : found;
     if (!m) {
       /* Prose with no name in front of it — a legendary action preamble, or a
          paragraph that belongs to whatever came before. */
@@ -357,10 +445,23 @@ export function parseStatBlock(input: string): ParseResult {
   const report: ParseReport = { took: [], unsure: [], missing: [] };
 
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  /* A printed name is set in small capitals, and recognition hands it back
-     SHOUTING. Only when there is no lower case at all, so a name that was
-     written that way on purpose keeps its own shape. */
-  const printed = lines[0] ?? 'Monster';
+  /* The creature's name, not whatever happens to be on the first line.
+     Recognition puts a speck above the block and the first line comes back as
+     "o"; a two-column crop welds the right column's heading onto it and it
+     comes back as "Owl ACTIONS". Walk down until something looks like a name.
+
+     The heading strip has to run before the capitals repair, because the
+     welded heading is also where the lower case comes from that makes the
+     name look like it was deliberately mixed. */
+  const HEADING_TAIL = /\s+(?:ACTIONS?|BONUS ACTIONS?|REACTIONS?|LEGENDARY ACTIONS?|TRAITS?|LAIR ACTIONS?)\s*$/i;
+  const titleish = (line: string): boolean =>
+    line.replace(HEADING_TAIL, '').trim().length >= 3
+    && !HEADER_LABEL.test(line)
+    && !headingFor(line)
+    && !SIZES.some((z) => new RegExp(`^${z}\\b`, 'i').test(line));
+  const chosen = lines.slice(0, 4).find(titleish);
+  if (chosen === undefined) report.missing.push('Name');
+  const printed = (chosen ?? 'Monster').replace(HEADING_TAIL, '').trim();
   block.name = /[a-z]/.test(printed) ? printed : printed.toLowerCase()
     .replace(/\b[a-z]/g, (c) => c.toUpperCase())
     .replace(/\b(Of|The|And|A|An|In|On|To|From)\b/g, (w, _m, at: number) => (at === 0 ? w : w.toLowerCase()));
@@ -368,7 +469,7 @@ export function parseStatBlock(input: string): ParseResult {
 
   /* "Huge Dragon, Chaotic Evil" — each part optional, in any of the casings
      the different generators use. */
-  const meta = lines.slice(1, 4).find((l) => SIZES.some((s) => new RegExp(`^${s}\\b`, 'i').test(l)));
+  const meta = lines.slice(1, 6).find((l) => SIZES.some((s) => new RegExp(`^${s}\\b`, 'i').test(l)));
   if (meta) {
     const size = SIZES.find((s) => new RegExp(`^${s}\\b`, 'i').test(meta));
     if (size) block.size = size as SizeId;
@@ -433,6 +534,17 @@ export function parseStatBlock(input: string): ParseResult {
       block.speeds[kind] = firstNumber(speed, new RegExp(`${kind}\\s*:?\\s*(\\d+)`, 'i')) ?? 0;
     }
     block.speeds.hover = /hover/i.test(speed);
+    /* Speeds come in fives and nothing in the game moves 400 feet. A number
+       that is neither is a misread digit the repair in normalize did not
+       catch, and saying so is the difference between a wrong answer and a
+       flagged one. */
+    for (const [kind, v] of ([['walk', block.speeds.walk], ['burrow', block.speeds.burrow],
+      ['climb', block.speeds.climb], ['fly', block.speeds.fly],
+      ['swim', block.speeds.swim]] as const)) {
+      if (v > 0 && (v % 5 !== 0 || v > 120)) {
+        report.unsure.push(`A ${kind} speed of ${v} ft. is not a speed the game uses`);
+      }
+    }
     report.took.push(`Speed ${speed.trim()}`);
   } else {
     report.missing.push('Speed');
@@ -516,7 +628,7 @@ export function parseStatBlock(input: string): ParseResult {
     /* Grouped, or the alternation in a label like "Damage Resistances|
        Resistances" would swallow everything after it. */
     const found = header(text, label);
-    return found ? found.split(/[,;]/).map((x) => x.trim()).filter((x) => x && x !== '—') : [];
+    return found ? found.split(/[,;]/).map((x) => x.trim()).filter((x) => !isNothing(x)) : [];
   };
   block.vulnerabilities = words('Damage Vulnerabilities|Vulnerabilities');
   block.resistances = words('Damage Resistances|Resistances');
@@ -530,7 +642,7 @@ export function parseStatBlock(input: string): ParseResult {
     if (both) {
       const [damage, conditions] = both.split(';');
       const split = (part: string | undefined): string[] => (part ?? '')
-        .split(',').map((x) => x.trim()).filter((x) => x && x !== '—');
+        .split(',').map((x) => x.trim()).filter((x) => !isNothing(x));
       /* Without a semicolon it is one list, and which list it is depends on
          what is in it: a condition is a condition wherever it is written. */
       if (conditions === undefined) {
@@ -557,7 +669,7 @@ export function parseStatBlock(input: string): ParseResult {
   if (languages) {
     block.telepathy = firstNumber(languages, /telepathy\s*(\d+)/i) ?? 0;
     block.languages = languages.split(/[;,]/).map((x) => x.trim())
-      .filter((x) => x && x !== '—' && !/telepathy/i.test(x));
+      .filter((x) => !isNothing(x) && !/telepathy/i.test(x));
   }
 
   if (initiative !== null) {

@@ -549,6 +549,8 @@ is('nor is a count that depends on a spell slot guessed at',
    scored only whatever single action happened to be heaviest. */
 const maShape = (text: string) => (parseMultiattack(text)?.branches[0] ?? [])
   .map((p) => `${p.times}x${p.names.join('/')}`).join(' + ');
+const maShape2 = (text: string, i: number) => (parseMultiattack(text)?.branches[i] ?? [])
+  .map((p) => `${p.times}x${p.names.join('/')}`).join(' + ');
 
 is('a count, a colon, and the limbs after it',
   maShape('The dragon makes three attacks: one with its bite and two with its claws.'),
@@ -572,6 +574,44 @@ is('the combination phrased the other way round',
 /* Alternatives still have to stay alternatives, however they are written. */
 is('an "or" is still two routines, not one longer one',
   parseMultiattack('The hoplite makes three melee attacks or two ranged attacks.')!.branches.length, 2);
+
+console.log('\n--- or, and, and instead of ---');
+/* The three shapes a Multiattack offers a choice in, which between them were
+   scoring creatures for attacks they cannot make and missing ones they can. */
+is('a replacement is read, and is not an extra attack',
+  JSON.stringify(parseMultiattack('The swarm makes three Engulfing Grasp or Mind Melting Ray attacks and can replace one with Beckoning Wave.')!.sub),
+  '{"times":1,"names":["Beckoning Wave"]}');
+/* The 2025 dragons offer two breaths in one clause; stopping at the "or" is
+   what keeps the name from coming out as "Sleep Breath or". */
+is('- and stops at the or when two are offered',
+  parseMultiattack('The dragon makes three Rend attacks. It can replace one attack with a use of Sleep Breath or Weakening Breath.')!.sub?.names[0],
+  'Sleep Breath');
+is('- with the attacks themselves left alone',
+  maShape('The swarm makes three Engulfing Grasp or Mind Melting Ray attacks and can replace one with Beckoning Wave.'),
+  '3xEngulfing Grasp/Mind Melting Ray');
+is('"or one of each" offers the mixed routine too',
+  parseMultiattack('The Forest Master makes either two Hooves attacks, two Moon Bolt attacks, or one of each.')!.branches.length, 3);
+is('- the third being one of either',
+  maShape2('The Forest Master makes either two Hooves attacks, two Moon Bolt attacks, or one of each.', 2),
+  '1xHooves + 1xMoon Bolt');
+is('"Alternatively" starts a second routine rather than adding to the first',
+  parseMultiattack('The medusa makes one Constrict attack, one Final Blade attack, and one Snake Hair attack. Alternatively, it makes two Wrathful Strike attacks.')!.branches.length, 2);
+/* A dash where a comma belongs hid the "or" between the two halves, so both
+   were added together and the creature got two rounds in one. */
+is('a dash pair does not weld two routines into one',
+  parseMultiattack('The medusa makes either three melee attacks\u2014one with its snake hair and two with its shortsword\u2014or two ranged attacks with its longbow.')!.branches.length,
+  2);
+/* Filler is not a name: "only one of which can be a bite attack" used to
+   become an attack called "of which can be a bite". */
+is('grammar is not mistaken for the name of an attack',
+  maShape('The amphisbaena makes two attacks, only one of which can be a constrict attack.'),
+  '2xattack');
+/* The repeat used to return early and throw away every attack beside it. */
+is('a repeat joins the attacks in its own sentence rather than replacing them',
+  maShape('The phylaskia makes two longsword attacks and uses its Strength Drain once.'),
+  '2xlongsword + 1xStrength Drain');
+is('- and a repeat that is the whole routine still is',
+  maShape('The beholder uses Eye Rays three times.'), '3xEye Rays');
 
 is('a recharge marks a limited use', isLimitedUse('Fire Breath (Recharge 5\u20136)'), true);
 is('so does a daily', isLimitedUse('Wish (1/Day)'), true);
@@ -634,7 +674,11 @@ is('legendary actions are spent, and a reaction added',
   v.next.extraDamage, 3 * 7 + 4);
 is('rounds collapse to one', v.next.roundCount, 1);
 is('secondary damage is cleared', v.next.secondary[0], 0);
-is('the target CR range is left alone', v.next.tierId, '0-4');
+/* The band is no longer left wherever the last person put it. The fixture
+   has a proficiency bonus of +3, which is CR 5-8, so it lands in 5-10. */
+is('the target CR range follows the creature', v.next.tierId, '5-10');
+is('and the report says where it came from',
+  v.report.took.some((l) => /Target CR range set to CR 5-10/.test(l)), true);
 
 console.log('\n--- a defence has to be worth routing around ---');
 /* Three is the line, and it is where nonmagical bludgeoning, piercing and

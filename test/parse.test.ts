@@ -17,7 +17,7 @@ import { MONSTER_TEMPLATES } from '../src/data/monsterTemplates.ts';
 import { SEALED_TEMPLATES } from '../src/data/monsterTemplatesSealed.ts';
 import { open as openVault } from '../src/lib/vault.ts';
 import { templateBlock } from '../src/lib/catalog.ts';
-import { gutter } from '../src/lib/ocr.ts';
+import { gutter, gutters } from '../src/lib/ocr.ts';
 import { vibeCheck } from '../src/lib/vibeCheck.ts';
 import { compute } from '../src/lib/engine.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
@@ -249,6 +249,41 @@ is('a thin strip beside a block of text is not a second column',
   gutter(page([[20, 270], [285, 295]])), null);
 is('a blank page has no gutter', gutter(page([])), null);
 
+/* This app's own two-column export is lopsided on purpose: the name, the
+   defences, the ability table and the traits are all pinned into the left
+   column, so a small creature leaves the right one thin. A plain even-ink
+   test refused to split one export in six. */
+/* Text down the full height on the left, a few lines on the right — which
+   is what a small creature's export looks like once the name, the defences,
+   the ability table and the traits are all in column one. */
+const uneven = (): { width: number; height: number; data: number[] } => {
+  const data = new Array<number>(WIDTH * HEIGHT * 4).fill(255);
+  const mark = (x: number, y: number): void => {
+    const i = (y * WIDTH + x) * 4;
+    data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255;
+  };
+  for (let y = 0; y < HEIGHT; y++) for (let x = 20; x < 180; x += 3) mark(x, y);
+  for (let y = 0; y < HEIGHT / 8; y++) for (let x = 220; x < 380; x += 3) mark(x, y);
+  return { width: WIDTH, height: HEIGHT, data };
+};
+const lopsided = gutter(uneven());
+is('a thin but real second column is split', Boolean(lopsided), true);
+is('- and the cut is between them',
+  lopsided ? lopsided.start >= 180 && lopsided.end <= 220 : false, true);
+/* The floor that stops that becoming a licence. A scrollbar, a page-number
+   rail or a margin note is not a column. */
+is('a hairline strip is still not a column',
+  gutter(page([[20, 270], [285, 295]])), null);
+
+console.log('\n--- more than two columns ---');
+is('one cut where there is one', gutters(page([[20, 180], [220, 380]])).length, 1);
+is('two cuts where there are three columns',
+  gutters(page([[10, 120], [150, 250], [280, 390]])).length, 2);
+is('and none at all on a single column', gutters(page([[20, 380]])).length, 0);
+/* The first cut is still found by the old rule, in the middle of the page,
+   so nothing that reads as one column today starts being split in two. */
+is('a wide margin is still not a column', gutters(page([[120, 280]])).length, 0);
+
 console.log('\n--- the terser house style, as recognition gives it back ---');
 /* A real block that read as almost nothing. Every line below is a different
    thing the parser had never met: labels run together with their numbers,
@@ -367,6 +402,80 @@ const noNote = parseStatBlock([
 is('an initiative roll is not mistaken for an armour note', noNote.acNote, '');
 is('and hit points with no dice printed do not grow any', noNote.showHitDice, false);
 is('a plain initiative is no proficiency at all', noNote.initiative, 'none');
+
+console.log('\n--- the formats a stat block actually arrives in ---');
+const PLAIN = [
+  'Goblin Boss', 'Small Humanoid, Neutral Evil',
+  'Armor Class 17', 'Hit Points 21 (6d6)', 'Speed 30 ft.',
+  'STR 10 DEX 14 CON 10 INT 10 WIS 8 CHA 10',
+  'Damage Resistances \u2014',
+  'Languages Common, Goblin', 'Challenge 1 (200 XP)', 'Proficiency Bonus +2', '',
+  'Scimitar. Melee Attack Roll: +4 to hit. Hit: 5 (1d6 + 2) Slashing damage.',
+].join('\n');
+
+/* A non-breaking space is what a PDF, Google Docs, Word and most HTML put
+   between a label and its number. The patterns are written with a literal
+   space, so every one of them matched nothing. */
+const nbsp = parseStatBlock(PLAIN.replace(/ /g, '\u00a0')).block;
+is('a block pasted with non-breaking spaces still has an armour class', nbsp.acValue, 17);
+is('- and hit points', nbsp.hpValue, 21);
+is('- and ability scores',
+  ABILITIES.map((a) => nbsp.abilities[a]).join(' '), '10 14 10 10 8 10');
+
+/* Pasted out of a rendered page: every line wrapped in a tag. */
+const html = parseStatBlock(PLAIN.split('\n').map((l) => (l ? `<p>${l}</p>` : '')).join('\n')).block;
+is('an HTML paste survives its tags', `${html.acValue}/${html.hpValue}`, '17/21');
+
+/* Homebrewery v3 wraps the block in brace tokens and a blockquote gutter.
+   The tokens come off, not the lines they sit on — wrapping one action in a
+   note is ordinary practice and dropping the line would take the action. */
+const brewed = parseStatBlock([
+  '{{monster,frame',
+  ...PLAIN.split('\n').map((l) => (l ? `> ${l}` : '>')),
+  '{{note ***Second Wind.*** The boss regains 7 hit points.}}',
+  '}}',
+].join('\n'));
+is('a Homebrewery paste reads as a stat block', looksLikeStatBlock(brewed.block.name ? PLAIN : ''), true);
+is('- with its armour class', brewed.block.acValue, 17);
+is('- and the action inside a note is not lost',
+  brewed.block.entries.trait.concat(brewed.block.entries.action).some((e) => e.name === 'Second Wind'), true);
+
+/* A dash means the creature has none of whatever this is. Which dash varies
+   by who printed it, and comparing against one of the three let the others
+   through as a value. */
+is('an em dash is an empty field, not a resistance', nbsp.resistances.length, 0);
+for (const dash of ['-', '\u2013', '\u2014', 'None']) {
+  is(`- and so is "${dash}"`,
+    parseStatBlock(PLAIN.replace('Damage Resistances \u2014', `Damage Resistances ${dash}`)).block.resistances.length, 0);
+}
+
+/* D&D Beyond puts a label on one line and its value on the next. */
+const wrapped2 = parseStatBlock([
+  'Mage', 'Medium Humanoid, Neutral', 'Armor Class 15', 'Hit Points 40 (9d8)',
+  'Speed 30 ft.', 'STR 9 DEX 14 CON 11 INT 17 WIS 12 CHA 11',
+  'Saving Throws', 'Int +6, Wis +4',
+  'Challenge 6 (2,300 XP)', 'Proficiency Bonus +3', '',
+  'Dagger. Melee Attack Roll: +5 to hit. Hit: 4 (1d4 + 2) Piercing damage.',
+].join('\n')).block;
+is('a label alone on its line still finds its value', wrapped2.saves.join(','), 'int,wis');
+
+/* The picture path: the image exporter lays each paragraph of an entry out
+   separately, so a screenshot returns them with no name in front of the
+   second — and "At Will:" became an action called At Will. */
+const spellList = parseStatBlock([
+  'Archmage', 'Medium Humanoid, Neutral', 'Armor Class 12', 'Hit Points 99 (18d8 + 18)',
+  'Speed 30 ft.', 'STR 10 DEX 14 CON 12 INT 20 WIS 15 CHA 16',
+  'Challenge 12 (8,400 XP)', 'Proficiency Bonus +4', '',
+  'ACTIONS', '',
+  'Spellcasting. The archmage casts one of the following spells.', '',
+  'At Will: Detect Magic, Mage Armor, Light', '',
+  '3rd Level (3 slots): Counterspell, Fly', '',
+  'Dagger. Melee Attack Roll: +6 to hit. Hit: 4 (1d4 + 2) Piercing damage.',
+].join('\n')).block;
+is('a spell list does not become two actions of its own',
+  spellList.entries.action.map((e) => e.name).join(','), 'Spellcasting,Dagger');
+is('- it stays inside the entry it belongs to',
+  /At Will/.test(spellList.entries.action[0]?.text ?? ''), true);
 
 console.log('\n--- a block this app printed itself, read back in ---');
 /* The strictest case there is: the Monster Maker's own two-column export,

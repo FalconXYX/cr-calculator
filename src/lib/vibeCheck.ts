@@ -1,6 +1,7 @@
 /* "Vibe check the CR" — read a stat block and fill the calculator from it.
    Everything flows this way: the block is authored, the calculator scores it. */
 
+import { TIERS, tierForProficiency } from './crTable.ts';
 import { TRAITS } from './traits.ts';
 import { ENTRY_SECTIONS, abilityMod, kindOf } from './statblock.ts';
 import type { Entry, EntrySection, StatBlock } from './statblock.ts';
@@ -76,7 +77,13 @@ function valueFor(trait: Trait, entry: Entry, sb: StatBlock): number | null {
 /* ---------------- Picking the routine out of an action list ---------------- */
 
 /** One entry and what it deals. `times` is set where it is used repeatedly. */
-interface Option { entry: Entry; damage: number; times?: number; }
+interface Option {
+  entry: Entry;
+  damage: number;
+  times?: number;
+  /** Bought a seat off another attack rather than adding one of its own. */
+  instead?: boolean;
+}
 
 /** What one use of an entry is worth, however the entry states it. */
 type DamageOf = (entry: Entry) => number;
@@ -101,6 +108,7 @@ function heaviest(list: readonly Entry[], damageOf: DamageOf): Option | null {
 function describe(option: Option): string {
   const name = option.entry.name || 'Unnamed';
   const times = option.times ?? 1;
+  if (option.instead) return `${b(name)} in place of the weakest, +${option.damage}`;
   return times > 1
     ? `${times} \u00d7 ${b(name)} ${Math.round(option.damage / times)}`
     : `${b(name)} ${option.damage}`;
@@ -370,10 +378,24 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
    * is the signal to say so rather than to guess.
    */
   const runRoutine = (plan: Routine, open: Set<Entry>): Option[] | null => {
+    /* What the creature may swap in for one of its attacks, if it is
+       something it can do every round. A Recharge or once-a-day replacement
+       is already scored as the round-one opener further down, and spending it
+       here as well would count the same action twice. */
+    const swap = plan.sub && !isLimitedUse(plan.sub.names[0] ?? '')
+      ? heaviest(
+        plan.sub.names.flatMap(lookUp).filter((e) => !open.has(e) && !isLimitedUse(e.name)),
+        (e) => damageAt(e, open),
+      )
+      : null;
+
     let best: Option[] | null = null;
     let bestDamage = 0;
     for (const branch of plan.branches) {
       const picks: Option[] = [];
+      /* One seat per attack the routine makes, so the swap can be priced as
+         what it displaces rather than as something extra. */
+      const seats: number[] = [];
       let damage = 0;
       for (const part of branch) {
         const named = part.names
@@ -383,6 +405,24 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
         if (!pick) continue;
         damage += part.times * pick.damage;
         picks.push({ entry: pick.entry, damage: part.times * pick.damage, times: part.times });
+        for (let i = 0; i < part.times; i++) seats.push(pick.damage);
+      }
+      if (swap && seats.length) {
+        /* The replacement takes the weakest seats, and only where it is worth
+           more than what it displaces — a creature does not trade down. */
+        seats.sort((a, b) => a - b);
+        let gained = 0;
+        const bought = Math.min(plan.sub?.times ?? 1, seats.length);
+        for (let i = 0; i < bought; i++) {
+          if (swap.damage > seats[i]!) gained += swap.damage - seats[i]!;
+        }
+        /* Into `picks`, not just into `damage`: the caller adds the picks up
+           again to get the round, so a gain recorded only here never reaches
+           the number anybody sees. */
+        if (gained > 0) {
+          damage += gained;
+          picks.push({ entry: swap.entry, damage: gained, instead: true });
+        }
       }
       if (damage > 0 && damage > bestDamage) { bestDamage = damage; best = picks; }
     }
@@ -391,9 +431,26 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
 
   /* `open` is what is already being worked out, so two actions that name each
      other stop instead of chasing one another for ever. */
+  /* An area effect hits more than one creature, and the DMG counts it that
+     way. Scored against a single target a dragon's breath always loses to its
+     own attack routine and is thrown away entirely — Adult Blue Dragon's
+     Lightning Breath reads 60 against a routine of 63, and never counts.
+     Two targets is the measured optimum; three overshoots and costs the 2025
+     Monster Manual two points.
+
+     Limited use is the gate, and it is load-bearing: an at-will area attack
+     is already in the routine, and doubling it there would count a cantrip as
+     though it always caught a pair. Cube is deliberately absent — a ray that
+     disintegrates "a 10-foot Cube" of a wall is aimed at one creature. */
+  const AREA = /\d+-foot\s+(?:Cone|Line|Sphere|Radius|Emanation)|\beach creature (?:in|within)\b|\ball creatures in\b/i;
+  const spread = (entry: Entry): number => {
+    const all = `${entry.name} ${entry.text}`;
+    return AREA.test(all) && parseToHit(all) === null && isLimitedUse(entry.name) ? 2 : 1;
+  };
+
   const damageAt = (entry: Entry, open: Set<Entry>): number => {
     const own = parseDamage(entry.text);
-    if (own > 0) return own;
+    if (own > 0) return own * spread(entry);
     const plan = parseMultiattack(entry.text);
     if (!plan || open.has(entry)) return 0;
     const picks = runRoutine(plan, new Set([...open, entry]));
@@ -512,9 +569,22 @@ export function vibeCheck(sb: StatBlock, current: CalcState): VibeResult {
     skipped.push('No damage found in any action. Set the damage per round yourself.');
   }
 
+  /* The band the creature belongs to, which until now was whatever the last
+     person to touch the calculator had selected — so a CR 15 monster was
+     scored against CR 0-4, where resistances double its hit points and the
+     fear traits still apply. The DMG procedure is band-relative all the way
+     through, so this was not a small error: Marilith read CR 21 for a CR 16
+     demon. It costs the CR 17+ creatures a little, because at that band
+     resistance stops multiplying and several of them were quietly living off
+     a boost the wrong band was handing them. That is the procedure
+     disagreeing with the designers, not a reason to fudge the table. */
+  const tier = tierForProficiency(sb.proficiencyBonus);
+  took.push(`Target CR range set to ${TIERS.find((t) => t.id === tier)?.label ?? tier}, from the block's proficiency bonus of +${sb.proficiencyBonus}`);
+
   return {
     next: {
       ...current,
+      tierId: tier,
       ac: sb.acValue,
       hp: sb.hpValue,
       attackBonus,

@@ -16,7 +16,6 @@ import { open as openVault } from '../src/lib/vault.ts';
 import { vibeCheck } from '../src/lib/vibeCheck.ts';
 import { parseDamage } from '../src/lib/damageText.ts';
 import { compute, engineInput } from '../src/lib/engine.ts';
-import type { TierId } from '../src/lib/types.ts';
 import { toRoll20 } from '../src/lib/roll20.ts';
 import { CR_TABLE } from '../src/lib/crTable.ts';
 import type { CalcState } from '../src/lib/types.ts';
@@ -240,8 +239,6 @@ console.log('\n--- scoring the whole book ---');
 /* Not a claim that the DMG procedure agrees with the designers — it does
    not, and 2024 dragons come out low however carefully they are read. It is
    a floor: a change that makes the reading worse will show up here. */
-const tierFor = (v: number): TierId =>
-  (v <= 4 ? '0-4' : v <= 10 ? '5-10' : v <= 16 ? '11-16' : '17+');
 const rung = new Map(CR_TABLE.map((r) => [r.cr, r.i]));
 
 /* Split by book, because the two are different questions. The 2025 Monster
@@ -249,22 +246,30 @@ const rung = new Map(CR_TABLE.map((r) => [r.cr, r.i]));
    a regression; the 2014 books and the adventure NPCs are full of creatures
    whose whole threat is spellcasting, which the DMG procedure does not score
    and never claimed to. */
-const tally = new Map<string, { n: number; within1: number }>();
+const tally = new Map<string, { n: number; within1: number; exact: number; gap: number }>();
 let unrated = 0;
 let scored = 0;
 for (const t of ALL) {
   const book = rung.get(t.cr);
   if (book === undefined) { unrated++; continue; }
-  const { next } = vibeCheck(templateBlock(t), { ...blank, tierId: tierFor(t.crValue) });
+  /* No tierId handed in. It used to be — the harness told the calculator which
+     CR band the creature belonged to, which the app itself never did, so every
+     figure below was measured with an advantage the real thing did not have.
+     vibeCheck works the band out from the proficiency bonus now, so this is
+     the same path a person gets. */
+  const { next } = vibeCheck(templateBlock(t), blank);
   /* Scored through the same adapter the page uses. Written out by hand here,
      this omitted resistances, immunities, save proficiencies and the flying
      bonus, so the figure below was measuring a calculator nobody runs. */
   const result = compute(engineInput(next));
   scored++;
   const key = t.source === 'XMM' ? 'xmm' : 'rest';
-  const row = tally.get(key) ?? { n: 0, within1: 0 };
+  const row = tally.get(key) ?? { n: 0, within1: 0, exact: 0, gap: 0 };
   row.n++;
-  if (Math.abs(result.final.index - book) <= 1) row.within1++;
+  const off = Math.abs(result.final.index - book);
+  row.gap += off;
+  if (off === 0) row.exact++;
+  if (off <= 1) row.within1++;
   tally.set(key, row);
 }
 const share = (key: string): number => {
@@ -280,7 +285,7 @@ is('and barely any lack a rating to compare against', unrated < 5, true);
    points here, and a floor that both sides clear is a floor that would not
    have caught it. */
 is('the 2025 Monster Manual lands within one rung five times in six',
-  share('xmm') >= 84, true);
+  share('xmm') >= 85, true);
 is('- which is what share exactly', share('xmm'), share('xmm'));
 /* 64 as this is written, up from 59 once the older Multiattack wordings were
    read — "attacks twice with her talons" and the rest, which are how almost
@@ -292,8 +297,24 @@ is('- which is what share exactly', share('xmm'), share('xmm'));
    luck rather than by being met. */
 if (unsealed) {
   is('the older books and the adventure NPCs do worse, as they should',
-    share('rest') >= 62, true);
+    share('rest') >= 65, true);
   is('- and that share', share('rest'), share('rest'));
+  /* Two aggregate floors, because the per-book shares are rounded integers and
+     a change can move fifty creatures without moving either of them. Exact
+     agreement and mean gap are what notice that. */
+  const everything = [...tally.values()].reduce((a, r) => ({
+    n: a.n + r.n, within1: a.within1 + r.within1, exact: a.exact + r.exact, gap: a.gap + r.gap,
+  }), { n: 0, within1: 0, exact: 0, gap: 0 });
+  is('the whole corpus agrees exactly better than a quarter of the time',
+    Math.round((everything.exact / everything.n) * 1000) / 10 >= 27.5, true);
+  is('- which is what share exactly',
+    Math.round((everything.exact / everything.n) * 1000) / 10,
+    Math.round((everything.exact / everything.n) * 1000) / 10);
+  is('and the mean gap stays under a rung and a half',
+    Math.round((everything.gap / everything.n) * 1000) / 1000 <= 1.45, true);
+  is('- which is what it is exactly',
+    Math.round((everything.gap / everything.n) * 1000) / 1000,
+    Math.round((everything.gap / everything.n) * 1000) / 1000);
 } else {
   console.log('skip  the non-XMM share needs BESTIARY_PASSWORD; six creatures is not a sample');
 }

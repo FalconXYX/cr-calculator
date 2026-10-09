@@ -69,8 +69,9 @@ function recogniser(): Promise<Worker> {
          second time inverted and keep whichever read better, which doubles
          the wait on precisely the screenshots this tool sees most — the ones
          taken of a stat block on a dark background. `prepare` turns those the
-         right way up before they get here, so the second pass is a second
-         pass for nothing. */
+         right way up before they get here, so the second pass is usually a
+         second pass for nothing; `readImage` turns it back on for the pages
+         where the brightness was too near the middle to call. */
       await w.setParameters({ tessedit_do_invert: '0' });
       return w;
     });
@@ -95,6 +96,18 @@ export function warmUp(): void {
 /** The longest side we will hand the recogniser, and the shortest we want. */
 const MAX_SIDE = 2000;
 const MIN_SIDE = 1000;
+/**
+ * The narrowest a page may be made, however tall it is.
+ *
+ * Capping the LONGEST side is the wrong handle for a stat block, which is
+ * tall and narrow: a one-column export is about a thousand pixels across and
+ * several thousand down, so the cap only ever fires on the height and the
+ * only thing it takes away is the width, which is the dimension the letters
+ * live in. A phone screenshot came out at 760px across and stopped being
+ * legible. The floor applies to the downscale alone — the upscale branch
+ * exists for a small crop and must stay free to double it.
+ */
+const MIN_WIDTH = 1200;
 
 /**
  * Where the page divides into two columns, or nothing if it does not.
@@ -163,11 +176,88 @@ export function gutter(
 
   /* Both sides have to be carrying text. Otherwise this is one column that
      happens to have a quiet strip down it, and splitting would invent a
-     second column out of white space. */
+     second column out of white space.
+
+     Asymmetric, because this app's own two-column export is lopsided by
+     design: the name, the defences, the ability table and the traits are all
+     pinned into the left column, so a small creature leaves the right one
+     thin and a plain 15-to-85 band refused to split one export in six. The
+     floor is what keeps a scrollbar, a page-number rail or a margin note
+     from being promoted to a column, and it does not move. */
   let leftInk = 0;
   for (let x = 0; x < best.start; x++) leftInk += ink[x]!;
   const share = leftInk / total;
-  return share > 0.15 && share < 0.85 ? best : null;
+  const minor = Math.min(share, 1 - share);
+  if (minor < MINOR_INK) return null;
+  if (share > 0.15 && share < 0.85) return best;
+  /* Lopsided, so the gap has to be unarguable: blank nearly all the way
+     down, not merely blank on balance. */
+  let blank = 0;
+  let rows = 0;
+  for (let y = 0; y < height; y += 4) {
+    rows++;
+    let found = false;
+    for (let x = best.start; x < best.end && !found; x++) {
+      const i = (y * width + x) * 4;
+      if ((data[i]! + data[i + 1]! + data[i + 2]!) / 3 < 160) found = true;
+    }
+    if (!found) blank++;
+  }
+  return rows > 0 && blank / rows >= 0.95 ? best : null;
+}
+
+/** The least share of the ink a strip may hold and still be a column. */
+const MINOR_INK = 0.08;
+
+/**
+ * Every place the page divides, up to three cuts.
+ *
+ * The first is found exactly as it always was, in the middle half of the
+ * page, so nothing that reads as one column today starts being split. Only
+ * once a page has proved it is in columns do the later cuts look further out,
+ * which is what finds a third column and a sidebar.
+ */
+export function gutters(
+  frame: { width: number; height: number; data: Uint8ClampedArray | number[] },
+): { start: number; end: number }[] {
+  const first = gutter(frame);
+  if (!first) return [];
+  const cuts = [first];
+  for (let more = 0; more < 2; more++) {
+    const edges = [0, ...cuts.flatMap((c) => [c.start, c.end]), frame.width];
+    let added: { start: number; end: number } | null = null;
+    for (let i = 0; i < edges.length - 1 && !added; i += 2) {
+      const from = edges[i]!;
+      const to = edges[i + 1]!;
+      if (to - from < frame.width * 0.2) continue;
+      const piece = slice(frame, from, to);
+      const found = gutter(piece);
+      if (found) added = { start: from + found.start, end: from + found.end };
+    }
+    if (!added) break;
+    cuts.push(added);
+  }
+  return cuts.sort((a, b) => a.start - b.start);
+}
+
+/** One vertical strip of a frame, as its own frame. */
+function slice(
+  frame: { width: number; height: number; data: Uint8ClampedArray | number[] },
+  from: number, to: number,
+): { width: number; height: number; data: number[] } {
+  const width = to - from;
+  const data = new Array<number>(width * frame.height * 4);
+  for (let y = 0; y < frame.height; y++) {
+    for (let x = 0; x < width; x++) {
+      const src = (y * frame.width + from + x) * 4;
+      const dst = (y * width + x) * 4;
+      data[dst] = frame.data[src]!;
+      data[dst + 1] = frame.data[src + 1]!;
+      data[dst + 2] = frame.data[src + 2]!;
+      data[dst + 3] = frame.data[src + 3]!;
+    }
+  }
+  return { width, height: frame.height, data };
 }
 
 /**
@@ -187,10 +277,11 @@ export function gutter(
  * Returns one picture, or two when the page is in columns — left then right,
  * which is the order they are meant to be read in.
  */
-async function prepare(image: Blob): Promise<Blob[]> {
+async function prepare(image: Blob): Promise<{ parts: Blob[]; unsure: boolean }> {
   const bitmap = await createImageBitmap(image);
   const longest = Math.max(bitmap.width, bitmap.height);
-  const scale = longest > MAX_SIDE ? MAX_SIDE / longest
+  const scale = longest > MAX_SIDE
+    ? Math.max(MAX_SIDE / longest, Math.min(1, MIN_WIDTH / bitmap.width))
     : longest < MIN_SIDE ? Math.min(2, MIN_SIDE / longest)
       : 1;
 
@@ -201,7 +292,7 @@ async function prepare(image: Blob): Promise<Blob[]> {
      which is the right trade for many small readbacks and the wrong one here,
      where a single large picture is scaled once and read once. */
   const ctx = canvas.getContext('2d');
-  if (!ctx) return [image];
+  if (!ctx) return { parts: [image], unsure: false };
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
 
@@ -216,7 +307,14 @@ async function prepare(image: Blob): Promise<Blob[]> {
     sum += (px[i]! + px[i + 1]! + px[i + 2]!) / 3;
     seen++;
   }
-  if (seen > 0 && sum / seen < 110) {
+  const brightness = seen > 0 ? sum / seen : 255;
+  /* How close the call was. A stat block on a card, on a page of a different
+     tone, averages out somewhere in the middle and the answer is a coin
+     flip — so where it is close the recogniser is allowed to try both and
+     keep whichever read better. Where it is not close, it is told not to
+     bother, which is what makes a plainly dark screenshot fast. */
+  const unsure = Math.abs(brightness - 110) < 40;
+  if (seen > 0 && brightness < 110) {
     for (let i = 0; i < px.length; i += 4) {
       px[i] = 255 - px[i]!;
       px[i + 1] = 255 - px[i + 1]!;
@@ -225,12 +323,13 @@ async function prepare(image: Blob): Promise<Blob[]> {
     ctx.putImageData(frame, 0, 0);
   }
 
-  const split = gutter(frame);
-  const cuts = split
-    ? [[0, split.start], [split.end, canvas.width]] as const
-    : [[0, canvas.width]] as const;
+  const split = gutters(frame);
+  const cuts: (readonly [number, number])[] = [];
+  let from = 0;
+  for (const cut of split) { cuts.push([from, cut.start]); from = cut.end; }
+  cuts.push([from, canvas.width]);
 
-  return Promise.all(cuts.map(([from, to]) => {
+  const parts = await Promise.all(cuts.map(([from, to]) => {
     if (from === 0 && to === canvas.width) return toBlob(canvas, image);
     const part = document.createElement('canvas');
     part.width = to - from;
@@ -240,6 +339,7 @@ async function prepare(image: Blob): Promise<Blob[]> {
     pctx.drawImage(canvas, from, 0, part.width, part.height, 0, 0, part.width, part.height);
     return toBlob(part, image);
   }));
+  return { parts, unsure };
 }
 
 function toBlob(canvas: HTMLCanvasElement, fallback: Blob): Promise<Blob> {
@@ -262,10 +362,12 @@ export async function readImage(image: Blob, onProgress: OcrProgress): Promise<s
   try {
     /* Preparing the picture is an optimisation, not a requirement. A format
        the canvas will not decode should cost the saving, not the reading. */
-    const [engine, parts] = await Promise.all([
+    const [engine, ready] = await Promise.all([
       recogniser(),
-      prepare(image).catch(() => [image]),
+      prepare(image).catch(() => ({ parts: [image], unsure: true })),
     ]);
+    const { parts, unsure } = ready;
+    await engine.setParameters({ tessedit_do_invert: unsure ? '1' : '0' });
     const out: string[] = [];
     pieces = parts.length;
     for (const [i, part] of parts.entries()) {
