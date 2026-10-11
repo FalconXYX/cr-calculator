@@ -1211,3 +1211,133 @@ button.colhead[aria-expanded="true"]::after { content: "▾"; }
   .cell { padding: 2px 5px; }
   .cell label, .cell > span { font-size: 11px; }
 }
+
+/* ---------------- Google sync ---------------- */
+
+/* One icon button in the title bar, next to the theme switch. It is the only
+   thing on the page that mentions an account, and it is meant to be easy to
+   miss: the calculator works without it, and most people will never press it.
+
+   Last in the file on purpose — `.gsync-panel .mini` has the same weight as
+   `.monster .mini` further up, and source order is what settles the tie. */
+.icon-btn.gsync {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  /* White behind the mark. Google's terms ask for the logo unaltered, and on
+     the charcoal header the blue arm of the G all but disappears. */
+  background: #fff;
+  border-color: var(--head-line);
+}
+.icon-btn.gsync:hover { background: #fff; border-color: #fff; }
+.icon-btn.gsync.open { border-color: var(--accent-solid); }
+
+/* A dot rather than a word: signed in, working, or something went wrong. The
+   signed-out state has no dot at all, which is the quiet default. */
+.icon-btn.gsync::after {
+  content: "";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--head-bg);
+  background: transparent;
+}
+.gsync-idle::after { display: none; }
+.gsync-good::after { background: #34a853; }
+.gsync-busy::after { background: var(--highlight); }
+.gsync-bad::after { background: var(--result-solid); }
+
+/* Portalled to the body, so the calculator's `overflow: clip` cannot slice
+   it off. Positioned from script, like the trait popover. */
+.gsync-panel {
+  position: fixed;
+  z-index: 70;
+  width: min(312px, calc(100vw - 20px));
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.gsync-title {
+  font-size: 15.5px;
+  font-weight: 700;
+  font-style: italic;
+  margin-bottom: 4px;
+}
+
+.gsync-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.gsync-who { display: flex; flex-direction: column; min-width: 0; }
+.gsync-who b { font-size: 14.5px; }
+.gsync-who span {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsync-note { margin: 0 0 10px; color: var(--muted); }
+
+.gsync-state {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.gsync-error {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--result);
+  background: var(--result-bg);
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.gsync-actions { display: flex; gap: 7px; margin-top: 10px; }
+.gsync-panel .mini {
+  flex: none;
+  margin-right: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+/* Google's own button, near enough: white, their mark on the left, and the
+   text they ask for. */
+.gsync-signin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #747775;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f1f1f;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.gsync-signin:hover { background: #f7f8f8; border-color: #747775; }
+
+.gsync-fine {
+  margin: 9px 0 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}

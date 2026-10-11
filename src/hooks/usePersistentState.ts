@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react';
 
+/** Told the key, every time anything is written through here. */
+type Watcher = (key: string) => void;
+const watchers = new Set<Watcher>();
+
+/**
+ * Listen for local writes.
+ *
+ * One choke point rather than a notification bolted onto each shelf: sync has
+ * to notice a saved profile, a saved monster and a deletion alike, and the
+ * shelves have no reason to know that sync exists. Returns the unsubscribe.
+ */
+export function watchStored(fn: Watcher): () => void {
+  watchers.add(fn);
+  return () => { watchers.delete(fn); };
+}
+
 /**
  * State mirrored into localStorage.
  *
@@ -24,11 +40,7 @@ export function usePersistentState<T>(
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      /* storage unavailable; the app still works, it just will not resume */
-    }
+    writeStored(key, value);
   }, [key, value]);
 
   return [value, setValue];
@@ -47,6 +59,12 @@ export function writeStored(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* ignore */
+    /* storage unavailable; the app still works, it just will not resume */
+    return;
+  }
+  /* Watchers only after a write that landed, and never allowed to take the
+     write down with them. */
+  for (const fn of watchers) {
+    try { fn(key); } catch { /* not this caller's problem */ }
   }
 }

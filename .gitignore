@@ -6,5 +6,15 @@ dist/
 *.local
 .vite/
 
+# Local secrets and settings. The example is the one that is meant to be here.
+.env
+.env.*
+!.env.example
+
+# What Google hands you when you create an OAuth client. The browser flow
+# never uses the client secret inside it, so the right move is to delete the
+# file; this is the net in case one is downloaded again.
+client_secret_*.json
+
 # The upstream bestiary, kept so `npm run bestiary` need not refetch it.
 tools/.cache/

@@ -2,6 +2,8 @@ import { InfoButton } from './Popover.tsx';
 import { HELP } from '../lib/help.ts';
 import { TIERS } from '../lib/crTable.ts';
 import type { TierId } from '../lib/types.ts';
+import { GoogleSyncButton } from './GoogleSync.tsx';
+import type { GoogleSync } from '../hooks/useGoogleSync.ts';
 
 interface Props {
   tierId: TierId;
@@ -15,11 +17,12 @@ interface Props {
   onLoadProfile: (name: string) => void;
   onSaveProfile: () => void;
   onDeleteProfile: () => void;
+  sync: GoogleSync;
 }
 
 export function TitleBar({
   tierId, onTier, theme, onTheme, onReset, onVibeCheck,
-  profileNames, currentProfile, onLoadProfile, onSaveProfile, onDeleteProfile,
+  profileNames, currentProfile, onLoadProfile, onSaveProfile, onDeleteProfile, sync,
 }: Props) {
   return (
     <div className="titlebar">
@@ -66,6 +69,7 @@ export function TitleBar({
           <InfoButton content={HELP.vibe!} label="What does a vibe check do?" />
         </span>
         <button className="btn" type="button" onClick={onReset}>Reset</button>
+        <GoogleSyncButton sync={sync} />
         <button
           className="icon-btn"
           type="button"

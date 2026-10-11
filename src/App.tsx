@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { compute, engineInput, tierById } from './lib/engine.ts';
 import type { CalcState, TierId } from './lib/types.ts';
-import { usePersistentState, readStored, writeStored } from './hooks/usePersistentState.ts';
+import { usePersistentState, readStored, watchStored, writeStored } from './hooks/usePersistentState.ts';
+import { DEFAULTS, reviveState } from './lib/calcState.ts';
+import { PROFILE_KEY, dropProfile, putProfile, readProfiles } from './lib/sync.ts';
+import { useGoogleSync } from './hooks/useGoogleSync.ts';
 import { PopoverProvider } from './components/Popover.tsx';
 import { TitleBar } from './components/TitleBar.tsx';
 import { BaselineStrip } from './components/BaselineStrip.tsx';
@@ -22,34 +25,6 @@ const THEME_KEY = 'cr-calc-theme';
 const REF_KEY = 'cr-calc-ref-open';
 const MONSTER_KEY = 'cr-calc-monster-open';
 const STATBLOCK_KEY = 'cr-calc-statblock-v1';
-const PROFILE_KEY = 'cr-calc-profiles';
-
-const DEFAULTS: CalcState = {
-  tierId: '0-4',
-  ac: 13,
-  hp: 75,
-  attackBonus: 4,
-  saveDC: 12,
-  extraDamage: 0,
-  roundCount: 1,
-  primary: [5, 0, 0, 0, 0, 0],
-  secondary: [5, 0, 0, 0, 0, 0],
-  traits: {},
-  traitValues: {},
-};
-
-/** Saved state may predate a field, so merge rather than trust it wholesale. */
-function reviveState(raw: unknown): CalcState {
-  const saved = (raw ?? {}) as Partial<CalcState>;
-  return {
-    ...DEFAULTS,
-    ...saved,
-    traits: { ...(saved.traits ?? {}) },
-    traitValues: { ...(saved.traitValues ?? {}) },
-    primary: Array.isArray(saved.primary) ? saved.primary.slice(0, 6) : [...DEFAULTS.primary],
-    secondary: Array.isArray(saved.secondary) ? saved.secondary.slice(0, 6) : [...DEFAULTS.secondary],
-  };
-}
 
 export default function App() {
   const [state, setState] = usePersistentState<CalcState>(STATE_KEY, DEFAULTS, reviveState);
@@ -69,9 +44,20 @@ export default function App() {
   const [statblock, setStatblock] = usePersistentState<StatBlock>(
     STATBLOCK_KEY, defaultStatBlock(), reviveStatBlock);
 
-  const [profiles, setProfiles] = useState<Record<string, CalcState>>(
-    () => readStored<Record<string, CalcState>>(PROFILE_KEY, {}));
+  const [profiles, setProfiles] = useState<Record<string, CalcState>>(readProfiles);
   const [currentProfile, setCurrentProfile] = useState('');
+
+  /* Profiles can now also change because another device changed them, so the
+     shelf is read back whenever anything writes to it rather than only when
+     this tab is the one doing the writing. */
+  useEffect(() => watchStored((key) => {
+    if (key !== PROFILE_KEY) return;
+    const shelf = readProfiles();
+    setProfiles(shelf);
+    setCurrentProfile((name) => (name && !shelf[name] ? '' : name));
+  }), []);
+
+  const sync = useGoogleSync();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -118,18 +104,13 @@ export default function App() {
 
   /* ---- Profiles ---- */
 
-  const persistProfiles = useCallback((next: Record<string, CalcState>) => {
-    setProfiles(next);
-    writeStored(PROFILE_KEY, next);
-  }, []);
-
   const saveProfile = useCallback(() => {
     const suggested = currentProfile || `Monster ${Object.keys(profiles).length + 1}`;
     const name = window.prompt('Save this calculation as:', suggested)?.trim();
     if (!name) return;
-    persistProfiles({ ...profiles, [name]: state });
+    setProfiles(putProfile(name, state));
     setCurrentProfile(name);
-  }, [currentProfile, profiles, state, persistProfiles]);
+  }, [currentProfile, profiles, state]);
 
   const loadProfile = useCallback((name: string) => {
     if (!name) { setCurrentProfile(''); return; }
@@ -143,11 +124,9 @@ export default function App() {
   const deleteProfile = useCallback(() => {
     if (!currentProfile) return;
     if (!window.confirm(`Delete the profile “${currentProfile}”?`)) return;
-    const next = { ...profiles };
-    delete next[currentProfile];
-    persistProfiles(next);
+    setProfiles(dropProfile(currentProfile));
     setCurrentProfile('');
-  }, [currentProfile, profiles, persistProfiles]);
+  }, [currentProfile]);
 
   /* Reads the block below and overwrites the calculator with it. The report
      of what it could and could not work out goes in the space under Offensive
@@ -189,6 +168,7 @@ export default function App() {
             onLoadProfile={loadProfile}
             onSaveProfile={saveProfile}
             onDeleteProfile={deleteProfile}
+            sync={sync}
           />
           <BaselineStrip tier={tierById(state.tierId)} />
 
@@ -230,6 +210,7 @@ export default function App() {
             onChange={setStatblock}
             onScore={runVibeCheck}
             row={result.final.row}
+            synced={sync.phase === 'ready' || sync.phase === 'working'}
           />
         </MonsterMaker>
 

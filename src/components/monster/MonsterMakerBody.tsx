@@ -51,8 +51,14 @@ import {
 } from "../../lib/parseStatBlock.ts";
 import type { ParseReport } from "../../lib/parseStatBlock.ts";
 import { imageFrom, readImage, warmUp } from "../../lib/ocr.ts";
-import { forgetMonster, saveMonster, savedMonsters } from "../../lib/library.ts";
+import {
+  LIBRARY_KEY,
+  forgetMonster,
+  saveMonster,
+  savedMonsters,
+} from "../../lib/library.ts";
 import type { SavedMonster } from "../../lib/library.ts";
+import { watchStored } from "../../hooks/usePersistentState.ts";
 import { StatBlockPreview } from "./StatBlockPreview.tsx";
 import {
   CatalogPicker,
@@ -195,9 +201,11 @@ interface Props {
   /** Scores a block straight away, without waiting for state to catch up. */
   onScore: (block: StatBlock) => void;
   row: CrRow;
+  /** The shelf is being copied to a Google account, so the note can say so. */
+  synced: boolean;
 }
 
-export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
+export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) {
   const [open, setOpen] = useState<string | null>(null);
   const toggle = (id: string) => setOpen((cur) => (cur === id ? null : id));
 
@@ -349,6 +357,11 @@ export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
   const [library, setLibrary] = useState<SavedMonster[]>(() => savedMonsters());
   const keep = useCallback(() => setLibrary(saveMonster(sb)), [sb]);
   const forget = useCallback((name: string) => setLibrary(forgetMonster(name)), []);
+  /* Sync can also rewrite the shelf, from a creature saved on a phone an hour
+     ago. Read it back when it moves underneath us. */
+  useEffect(() => watchStored((key) => {
+    if (key === LIBRARY_KEY) setLibrary(savedMonsters());
+  }), []);
   const already = useMemo(
     () => library.some((m) => m.name.toLowerCase() === (sb.name.trim() || "Monster").toLowerCase()),
     [library, sb.name],
@@ -651,9 +664,11 @@ export function MonsterMakerBody({ sb, onChange, onScore, row }: Props) {
 
         <Section {...sec("saved", "Saved Monsters", library.length)}>
           <p className="mm-note">
-            Kept in this browser, not on a server. Saving under a name that is
-            already here replaces it, so a second pass at the same creature
-            does not leave two of them on the shelf.
+            {synced
+              ? "Kept in this browser and copied to your Google Drive, so the shelf is the same on your other devices."
+              : "Kept in this browser, not on a server."}{" "}
+            Saving under a name that is already here replaces it, so a second
+            pass at the same creature does not leave two of them on the shelf.
           </p>
           <button type="button" className="mini mm-add" onClick={keep}>
             {already

@@ -1,0 +1,14 @@
+{
+  "name": "CR Calculator",
+  "short_name": "CR Calc",
+  "description": "Works out a D&D 5e monster's challenge rating from its statistics.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f6f7eb",
+  "theme_color": "#494949",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -34,6 +34,11 @@ jobs:
         run: npm test
 
       - name: Typecheck and build
+        # Public by design: it names the application and authorises nothing,
+        # so a repository variable rather than a secret. Leave it unset and
+        # the build still succeeds — the sync button simply never appears.
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
         run: npm run build
 
       - uses: actions/configure-pages@v5
