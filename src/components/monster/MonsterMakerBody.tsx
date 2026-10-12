@@ -51,7 +51,7 @@ import {
 } from "../../lib/parseStatBlock.ts";
 import type { ParseReport } from "../../lib/parseStatBlock.ts";
 import { imageFrom, readImage, warmUp } from "../../lib/ocr.ts";
-import { readerUrl, readWithAi } from "../../lib/aiParse.ts";
+import { needsHelp, readerUrl, readWithAi, spentToday } from "../../lib/aiParse.ts";
 import type { Outcome } from "../../lib/aiParse.ts";
 import {
   LIBRARY_KEY,
@@ -301,6 +301,9 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
      built-in reader's result standing. */
   const [ai, setAi] = useState<{ text: string; outcome: Outcome } | null>(null);
   const [thinking, setThinking] = useState(false);
+  /* The text somebody asked the AI reader about by hand, overriding the
+     judgement that the built-in reading was good enough. */
+  const [forced, setForced] = useState<string | null>(null);
   const answered = useRef(new Map<string, Outcome>());
   useEffect(() => {
     if (!raw || !readerUrl()) {
@@ -313,10 +316,18 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
       setThinking(false);
       return;
     }
+    /* Decided here as well as in readWithAi, so that a block that does not
+       need the AI never shows the bar at all. */
+    const force = forced === pasted;
+    if (!force && needsHelp(raw) === null) {
+      setAi({ text: pasted, outcome: { via: "skipped" } });
+      setThinking(false);
+      return;
+    }
     const cancel = new AbortController();
     const settle = window.setTimeout(() => {
       setThinking(true);
-      void readWithAi(pasted, raw, { signal: cancel.signal }).then((outcome) => {
+      void readWithAi(pasted, raw, { signal: cancel.signal, force }).then((outcome) => {
         if (cancel.signal.aborted) return;
         if (outcome.via === "ai") answered.current.set(pasted, outcome);
         setAi({ text: pasted, outcome });
@@ -327,7 +338,7 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
       window.clearTimeout(settle);
       cancel.abort();
     };
-  }, [pasted, raw]);
+  }, [pasted, raw, forced]);
 
   const outcome = ai?.text === pasted ? ai.outcome : null;
   const parsed = outcome?.via === "ai" ? outcome.result : raw;
@@ -671,6 +682,19 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
               >
                 Clear
               </button>
+              {outcome?.via === "skipped" && !spentToday() && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="mini"
+                    title="The built-in reader looked confident about this one, so it was not sent. Send it anyway if something above is wrong."
+                    onClick={() => setForced(pasted)}
+                  >
+                    Try the AI reader
+                  </button>
+                </>
+              )}
             </>
           )}
         </Section>

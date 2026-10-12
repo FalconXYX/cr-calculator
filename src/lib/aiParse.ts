@@ -468,11 +468,52 @@ export function combine(ai: ParseResult, raw: ParseResult, layout: Layout): Pars
   return { block, report };
 }
 
+/* ---------------- Whether to ask at all ---------------- */
+
+const NAME_RUN = "[A-Z][A-Za-z'’-]*(?:\\s+(?:[A-Z][A-Za-z'’-]*|of|the|and|or|in|on|to|from|with)){0,5}";
+
+/**
+ * One entry swallowed by the one above it: a sentence ends, and a name with
+ * its own full stop starts straight after, followed by a capital or an attack
+ * shorthand — "…piercing damage. Hand Crossbow (Human Form Only). rw +4…".
+ *
+ * Only where a stop comes before the name. Allowing prose to run straight
+ * into one as well catches a few more merges and sends ten times as many
+ * blocks that were already right.
+ */
+const MERGED = new RegExp(`[.!?)]\\s+${NAME_RUN}(?:\\s*\\([^)]{1,90}\\))?\\.\\s+(?:[A-Z]|(?:mw|rw|ms|rs)\\b)`);
+
+/** A name no entry has ever had: a piece of a sentence split off as one. */
+const NOT_A_NAME = /^(?:DC\s*\d+|Half damage|Success|Failure|Hit|Miss|First|Second|Third|Fourth)\b/i;
+
+/**
+ * Why the built-in reading needs the AI's help, or null if it looks sound.
+ *
+ * The allowance is fifty-odd blocks a day, so a block the rules have already
+ * read properly should not spend one. These signals are measured against the
+ * whole catalogue laid out the way a screenshot gives it back: together they
+ * send under one block in thirteen, and catch two in three of the readings
+ * the rules got wrong. Most of the rest are silent — a reading that looks
+ * whole and is not — which is what the "Try the AI reader" button is for.
+ */
+export function needsHelp(raw: ParseResult): string | null {
+  const { block, report } = raw;
+  if (report.missing.length) return `missing ${report.missing.join(', ')}`;
+  if (report.unsure.some((u) => /no name in front/.test(u))) return 'a paragraph with no name';
+  if (!block.entries.action.length) return 'no actions';
+  const all = [...block.entries.trait, ...block.entries.action, ...block.entries.legendary, ...block.entries.lair];
+  if (all.some((e) => NOT_A_NAME.test(e.name.trim()))) return 'an entry that is not one';
+  if (all.some((e) => MERGED.test(e.text))) return 'two entries run together';
+  return null;
+}
+
 /* ---------------- Asking ---------------- */
 
 export type Outcome =
   /** The AI reader's result, combined with the built-in one. */
   | { via: 'ai'; result: ParseResult }
+  /** The built-in reading looked sound, so the allowance was not spent on it. */
+  | { via: 'skipped' }
   /** Today's free allowance is used up; the built-in reader stands. */
   | { via: 'spent' }
   /** No Worker configured. */
@@ -487,6 +528,8 @@ export interface AskOptions {
   now?: number;
   /** How long to wait before giving up on the model. */
   timeoutMs?: number;
+  /** Ask even though the built-in reading looks sound. */
+  force?: boolean;
 }
 
 /**
@@ -499,6 +542,7 @@ export interface AskOptions {
 export async function readWithAi(text: string, raw: ParseResult, options: AskOptions = {}): Promise<Outcome> {
   const url = options.url ?? readerUrl();
   if (!url) return { via: 'off' };
+  if (!options.force && needsHelp(raw) === null) return { via: 'skipped' };
   const now = options.now ?? Date.now();
   if (spentToday(now)) return { via: 'spent' };
 

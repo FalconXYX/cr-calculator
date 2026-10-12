@@ -113,7 +113,12 @@ bodies out of the original text, so the dice the calculator reads are the dice
 that were printed. Anything the model misses is filled from the built-in
 reader.
 
-It runs on Cloudflare's free plan: 10,000 "neurons" a day, about 50 blocks.
+Only blocks the built-in reader is struggling with are sent: a missing field,
+an unfiled paragraph, two entries run together. Across the catalogue that's
+under one block in twelve, catching about three in four of its mistakes. A
+**Try the AI reader** button sends one anyway.
+
+It runs on Cloudflare's free plan: 10,000 "neurons" a day, about 50 reads.
 Past that the free plan refuses rather than bills, and the page falls back to
 the built-in reader until midnight UTC — as it does when the Worker is slow,
 down or not configured.

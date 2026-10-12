@@ -18,7 +18,7 @@ const store = new Map<string, string>();
   clear: () => { store.clear(); },
 };
 
-const { combine, layOut, readWithAi, reviveExtraction, spentToday } = await import('../src/lib/aiParse.ts');
+const { combine, layOut, needsHelp, readWithAi, reviveExtraction, spentToday } = await import('../src/lib/aiParse.ts');
 const { parseStatBlock } = await import('../src/lib/parseStatBlock.ts');
 const { classify, handle } = await import('../worker/src/index.ts');
 const { AI_MAX_INPUT, AI_PROMPT } = await import('../src/lib/aiSchema.ts');
@@ -203,6 +203,50 @@ console.log('\n--- filling the model’s gaps from the built-in reader ---');
     both.block.entries.action.length, raw.block.entries.action.length);
 }
 
+console.log('\n--- only asking when the built-in reader is struggling ---');
+{
+  /* Since the rules learned bare names and title-bar ratings, they read the
+     Frostfallen right on their own — so it should not cost an AI read. */
+  is('a block the rules read whole is not sent', needsHelp(raw), null);
+
+  const sound = parseStatBlock([
+    'Goblin', 'Small Humanoid, Neutral Evil', 'Armor Class 15', 'Hit Points 7 (2d6)', 'Speed 30 ft.',
+    'STR 8 DEX 14 CON 10 INT 10 WIS 8 CHA 8', 'Challenge 1/4', 'Proficiency Bonus +2', '',
+    'Nimble Escape. The goblin can take the Disengage or Hide action as a bonus action.', '',
+    'ACTIONS', '',
+    'Scimitar. Melee Attack Roll: +4, reach 5 ft. Hit: 5 (1d6 + 2) Slashing damage.',
+  ].join('\n'));
+  is('- nor is a clean official one', needsHelp(sound), null);
+
+  const noAc = parseStatBlock(['Goblin', 'Small Humanoid', 'Hit Points 7 (2d6)', 'Speed 30 ft.',
+    'STR 8 DEX 14 CON 10 INT 10 WIS 8 CHA 8', 'Challenge 1/4', '', 'ACTIONS', '',
+    'Scimitar. Melee Attack Roll: +4. Hit: 5 (1d6 + 2) Slashing damage.'].join('\n'));
+  is('a block missing its armour class is sent', /missing Armor Class/.test(needsHelp(noAc) ?? ''), true);
+
+  /* Two entries on one line, which is how a merge looks once the rules have
+     made it: the second name sits inside the first entry's text. */
+  const run = parseStatBlock(['Drake', 'Large Dragon', 'Armor Class 15', 'Hit Points 50 (6d10 + 17)', 'Speed 30 ft.',
+    'STR 18 DEX 10 CON 16 INT 6 WIS 10 CHA 8', 'Challenge 3', '', 'ACTIONS', '',
+    'Rend. Melee Attack Roll: +6. Hit: 9 (1d10 + 4) Slashing damage. Tail Swipe. Melee Attack Roll: +6. Hit: 7 (1d6 + 4) damage.'].join('\n'));
+  is('two entries run together are sent', needsHelp(run), 'two entries run together');
+  const shorthand = structuredClone(sound);
+  shorthand.report.unsure = [];
+  shorthand.block.entries.action[0]!.text += ' Hand Crossbow (Human Form Only). rw +4 to hit, range 30/120 ft.';
+  is('- including where the swallowed one opens with an attack shorthand', needsHelp(shorthand), 'two entries run together');
+
+  const phantom = structuredClone(sound);
+  phantom.block.entries.action.push({ id: 'x', name: 'DC 12', text: 'Constitution saving throw.', kind: 'action' });
+  is('a sentence split off as an entry is sent', needsHelp(phantom), 'an entry that is not one');
+
+  const traitsOnly = structuredClone(sound);
+  traitsOnly.block.entries.action = [];
+  is('a creature with no actions at all is sent', needsHelp(traitsOnly), 'no actions');
+
+  const prose = structuredClone(sound);
+  prose.block.entries.trait[0]!.text = 'The goblin hides. It can use the Disengage action as well, on a turn it is not seen.';
+  is('ordinary prose with capitals in it is not mistaken for a merge', needsHelp(prose), null);
+}
+
 console.log('\n--- asking, and falling back ---');
 type Call = { url: string; body: { text: string } };
 const calls: Call[] = [];
@@ -216,37 +260,47 @@ store.clear();
 is('no Worker means no request', (await readWithAi(OCR, raw, { url: '', fetch: answering(200, {}) })).via, 'off');
 is('- and nothing was sent', calls.length, 0);
 
-const ok = await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }), now: DAY });
+const ok = await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }), now: DAY });
 is('an answer is read', ok.via, 'ai');
 is('- into the same block the layout gave', ok.via === 'ai' ? ok.result.block.entries.action.length : 0, 5);
 is('the text is sent tidied', calls.at(-1)?.body.text.includes('|'), false);
 
 store.clear();
 calls.length = 0;
-is('a spent allowance falls back', (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(429, { error: 'quota' }), now: DAY })).via, 'spent');
+is('a spent allowance falls back', (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(429, { error: 'quota' }), now: DAY })).via, 'spent');
 is('- and is remembered for the rest of the day', spentToday(DAY + 60_000), true);
-is('- so the next block does not ask', (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }), now: DAY + 60_000 })).via, 'spent');
+is('- so the next block does not ask', (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }), now: DAY + 60_000 })).via, 'spent');
 is('- and nothing more was sent', calls.length, 1);
 is('the next UTC day it asks again', spentToday(DAY + 24 * 3_600_000), false);
 
 store.clear();
-is('a busy service falls back', (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(503, { error: 'busy' }), now: DAY })).via, 'failed');
+is('a busy service falls back', (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(503, { error: 'busy' }), now: DAY })).via, 'failed');
 is('- and is not remembered: the next block tries again', spentToday(DAY), false);
 is('an answer that is not a stat block falls back',
-  (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(200, { extraction: 'hello' }) })).via, 'failed');
+  (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(200, { extraction: 'hello' }) })).via, 'failed');
 is('a network failure falls back',
-  (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: (async () => { throw new TypeError('offline'); }) as typeof fetch })).via, 'failed');
+  (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: (async () => { throw new TypeError('offline'); }) as typeof fetch })).via, 'failed');
 
 const hanging = ((_: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
   init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
 })) as typeof fetch;
 const began = Date.now();
-is('a model that never answers is given up on', (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: hanging, timeoutMs: 50 })).via, 'failed');
+is('a model that never answers is given up on', (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: hanging, timeoutMs: 50 })).via, 'failed');
 is('- promptly', Date.now() - began < 1_000, true);
 const cancel = new AbortController();
-const pending = readWithAi(OCR, raw, { url: 'https://reader.test', fetch: hanging, signal: cancel.signal, timeoutMs: 60_000 });
+const pending = readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: hanging, signal: cancel.signal, timeoutMs: 60_000 });
 cancel.abort();
 is('a request the page no longer wants is dropped', (await pending).via, 'failed');
+
+console.log('\n--- the gate, on the way to the network ---');
+{
+  calls.length = 0;
+  is('a sound reading is not sent', (await readWithAi(OCR, raw, { url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }) })).via, 'skipped');
+  is('- and nothing went over the wire', calls.length, 0);
+  is('asked for by hand, it is', (await readWithAi(OCR, raw, { force: true, url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }) })).via, 'ai');
+  is('- once', calls.length, 1);
+  is('a struggling reading is sent without being asked', (await readWithAi(OCR, parseStatBlock('Frostfallen\nAC 18\nSTR 22'), { url: 'https://reader.test', fetch: answering(200, { extraction: ANSWER }) })).via, 'ai');
+}
 
 console.log('\n--- the Worker ---');
 const SITE = 'https://parthjain.ca';
