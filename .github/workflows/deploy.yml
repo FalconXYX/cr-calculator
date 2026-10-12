@@ -39,6 +39,9 @@ jobs:
         # the build still succeeds — the sync button simply never appears.
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          # The AI reader's Worker. Also public, also optional: unset, every
+          # block is read by the built-in reader alone.
+          VITE_READER_URL: ${{ vars.VITE_READER_URL }}
         run: npm run build
 
       - uses: actions/configure-pages@v5

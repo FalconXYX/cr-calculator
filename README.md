@@ -102,12 +102,32 @@ redirect URI and no client secret — the browser token flow uses neither.
 Testing it caps you at 100 accounts listed by email; publishing without
 Google's review shows everyone else an unverified-app warning.
 
+## The AI Reader
+
+Optional, free, and off unless configured. Homebrew stat blocks break layout
+rules in a new way every time, so a pasted or photographed block is also sent
+to a model on [Workers AI](https://developers.cloudflare.com/workers-ai/)
+through a small Worker in `worker/`. The model doesn't retype the block — it
+names each entry and quotes its first and last words, and the page cuts the
+bodies out of the original text, so the dice the calculator reads are the dice
+that were printed. Anything the model misses is filled from the built-in
+reader.
+
+It runs on Cloudflare's free plan: 10,000 "neurons" a day, about 50 blocks.
+Past that the free plan refuses rather than bills, and the page falls back to
+the built-in reader until midnight UTC — as it does when the Worker is slow,
+down or not configured.
+
+**Setup**: `cd worker && npx wrangler deploy`, then put the address it prints
+in `.env.local` and the repo's Actions variables as `VITE_READER_URL`.
+
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite
 - **Graphics**: HTML5 Canvas 2D
 - **OCR**: Tesseract.js, fetched from a CDN on first use and never before
 - **Crypto**: Web Crypto — AES-256-GCM, PBKDF2-SHA256
+- **AI reader**: Cloudflare Workers AI (Llama 3.3 70B), free plan
 - **Data**: 5etools bestiary, SRD 5.2
 
 ## Getting Started

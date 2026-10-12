@@ -51,6 +51,8 @@ import {
 } from "../../lib/parseStatBlock.ts";
 import type { ParseReport } from "../../lib/parseStatBlock.ts";
 import { imageFrom, readImage, warmUp } from "../../lib/ocr.ts";
+import { readerUrl, readWithAi } from "../../lib/aiParse.ts";
+import type { Outcome } from "../../lib/aiParse.ts";
 import {
   LIBRARY_KEY,
   forgetMonster,
@@ -285,10 +287,50 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
     }
   }, [readPicture]);
 
-  const parsed = useMemo(
+  /* The built-in reader, at once and on every keystroke. */
+  const raw = useMemo(
     () => (looksLikeStatBlock(pasted) ? parseStatBlock(pasted) : null),
     [pasted],
   );
+
+  /* The AI reader, once the text has settled. It is a request to a free
+     Worker with a daily allowance, so it waits for a pause rather than
+     firing per keystroke, and an answer is kept for the exact text it was
+     about so going back to that text costs nothing. Whatever it does not
+     manage — no Worker, allowance spent, too slow, a bad answer — leaves the
+     built-in reader's result standing. */
+  const [ai, setAi] = useState<{ text: string; outcome: Outcome } | null>(null);
+  const [thinking, setThinking] = useState(false);
+  const answered = useRef(new Map<string, Outcome>());
+  useEffect(() => {
+    if (!raw || !readerUrl()) {
+      setThinking(false);
+      return;
+    }
+    const known = answered.current.get(pasted);
+    if (known) {
+      setAi({ text: pasted, outcome: known });
+      setThinking(false);
+      return;
+    }
+    const cancel = new AbortController();
+    const settle = window.setTimeout(() => {
+      setThinking(true);
+      void readWithAi(pasted, raw, { signal: cancel.signal }).then((outcome) => {
+        if (cancel.signal.aborted) return;
+        if (outcome.via === "ai") answered.current.set(pasted, outcome);
+        setAi({ text: pasted, outcome });
+        setThinking(false);
+      });
+    }, 600);
+    return () => {
+      window.clearTimeout(settle);
+      cancel.abort();
+    };
+  }, [pasted, raw]);
+
+  const outcome = ai?.text === pasted ? ai.outcome : null;
+  const parsed = outcome?.via === "ai" ? outcome.result : raw;
   const readPasted = useCallback(() => {
     if (!parsed) return;
     onChange(parsed.block);
@@ -594,6 +636,9 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
             {reading !== null && (
               <Progress value={reading} label="Reading the picture" />
             )}
+            {reading === null && thinking && (
+              <Progress label="Reading the stat block" />
+            )}
           </div>
           {readFailed && <p className="mm-note">{readFailed}</p>}
           {pasted.trim() && !parsed && (
@@ -605,7 +650,18 @@ export function MonsterMakerBody({ sb, onChange, onScore, row, synced }: Props) 
           {parsed && (
             <>
               <ParseSummary report={parsed.report} />
-              <button type="button" className="mini" onClick={readPasted}>
+              {outcome?.via === "spent" && (
+                <p className="mm-note">
+                  Read by the built-in reader. Today&rsquo;s free AI reads are
+                  used up; they come back at midnight UTC.
+                </p>
+              )}
+              <button
+                type="button"
+                className="mini"
+                onClick={readPasted}
+                disabled={thinking}
+              >
                 Use {parsed.block.name || "it"}
               </button>{" "}
               <button

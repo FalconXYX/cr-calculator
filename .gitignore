@@ -16,5 +16,12 @@ dist/
 # file; this is the net in case one is downloaded again.
 client_secret_*.json
 
+# Wrangler's local state for the AI reader's Worker.
+.wrangler/
+
+# Tesseract's language data, which it downloads beside whatever invoked it
+# the first time the recogniser is run outside a browser.
+*.traineddata
+
 # The upstream bestiary, kept so `npm run bestiary` need not refetch it.
 tools/.cache/

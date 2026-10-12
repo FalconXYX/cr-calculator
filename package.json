@@ -3,13 +3,16 @@
   "private": true,
   "version": "2.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
   "description": "D&D 5e monster challenge rating calculator",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts && node --experimental-strip-types test/catalog.test.ts && node --experimental-strip-types test/parse.test.ts && node --experimental-strip-types test/library.test.ts && node --experimental-strip-types test/sync.test.ts",
+    "test": "node --experimental-strip-types test/engine.test.ts && node --experimental-strip-types test/statblock.test.ts && node --experimental-strip-types test/catalog.test.ts && node --experimental-strip-types test/parse.test.ts && node --experimental-strip-types test/library.test.ts && node --experimental-strip-types test/sync.test.ts && node --experimental-strip-types test/aiparse.test.ts",
     "bestiary": "node tools/build-bestiary.mjs"
   },
   "dependencies": {

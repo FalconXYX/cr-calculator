@@ -477,6 +477,97 @@ is('a spell list does not become two actions of its own',
 is('- it stays inside the entry it belongs to',
   /At Will/.test(spellList.entries.action[0]?.text ?? ''), true);
 
+/* A line can stop short of the column edge because its author meant it to.
+
+   Homebrew does this constantly: a bare sub-heading over a group of traits
+   ("6 Candles"), and an entry whose last line ends on a bracket rather than a
+   full stop ("…4 (1d6) Fire damage (included in attack)"). Neither closes a
+   sentence, and requiring one swallowed whatever came next — the Candela lost
+   Candle Abilities into a heading and Candle of Rebirth into Candle of fury.
+   What tells them apart from a wrapped line is width: a wrap stops at the
+   column edge, these stop well short of it. */
+const candela = parseStatBlock([
+  'Candela', 'Medium Undead, Lawful Evil', 'AC 17 Natural armor', 'HP 168 (16d8 + 96)',
+  'Speed 30 ft.', 'STR 18 DEX 14 CON 22 INT 12 WIS 16 CHA 18',
+  'CR 11 (XP 7,200; PB +4)',
+  'Traits',
+  '6 Candles',
+  'Candle Abilities. The candela begins the battle with 6 burning candles',
+  "attached to it. Each candle represents parts of it's supernatural ability.",
+  'Candle of pain. While burning, creatures that hit it with melee attacks',
+  'take 5 fire damage.',
+  'Candle of fury. Attacks the Candela make deal an additional 4 (1d6)',
+  'Fire damage (included in attack)',
+  'Candle of Rebirth. When the Candela would be reduced to 0 HP, it',
+  'instead drops to 1 HP. unless all six candles are extinguish.',
+].join('\n')).block;
+is('a bare sub-heading does not swallow the trait under it',
+  candela.entries.trait.map((e) => e.name).join(', '),
+  'Candle Abilities, Candle of pain, Candle of fury, Candle of Rebirth');
+is('- and the swallowed one kept its own text',
+  /reduced to 0 HP/.test(candela.entries.trait[3]?.text ?? ''), true);
+is('- without dragging the next trait in with it',
+  /Rebirth/.test(candela.entries.trait[2]?.text ?? ''), false);
+
+/* The guard this replaced was there for a reason: a sentence that wraps
+   mid-phrase must not start an entry of its own. A wrapped line runs to the
+   column edge, so it still does not. */
+const wrapped3 = parseStatBlock([
+  'Death Warden', 'Medium Undead, Neutral Evil', 'Armor Class 15', 'Hit Points 90 (12d8 + 36)',
+  'Speed 30 ft.', 'STR 16 DEX 12 CON 16 INT 10 WIS 14 CHA 11',
+  'Challenge 5 (1,800 XP)', 'Proficiency Bonus +3',
+  'ACTIONS',
+  'Grave Touch. Melee Attack Roll: +6, reach 5 ft., to a creature within 10ft of the Death',
+  'Warden. Hit: 12 (2d8 + 3) Necrotic damage and the target is Frightened of the',
+  'Death Warden until the end of its next turn.',
+].join('\n')).block;
+is('a sentence wrapping onto the creature\u2019s own name starts nothing',
+  wrapped3.entries.action.map((e) => e.name).join(', '), 'Grave Touch');
+
+/* A homebrew card: the rating in the title bar, three defences on one line,
+   "Spd" for Speed, a drawn rule where the Actions heading should be, and
+   every entry name set in bold with the sentence running straight on from it.
+   Bold is the first thing a screenshot loses, so there is no full stop to
+   find anywhere — this block used to come back with its defences and not one
+   trait or action. */
+const card = parseStatBlock([
+  'FROSTFALLEN CR 15',
+  'Large Undead 13,000xp',
+  '_ AC 18 (frozen hide), HP 225 (18d10+126), Spd 40ft. climb 20ft.',
+  'STR DEX CON INT WIS CHA',
+  '22 (+6) 14 (+2) 24 (+7) 5 (-3) 14 (+2) 8 (-1)',
+  'Damage Vulnerabilities Fire, Radiant',
+  'Languages That which it knew in life.',
+  '',
+  'Aura of Bitter Cold The Frostfallen radiates a supernatural cold emanation.',
+  '',
+  'Frozen Flesh The Frostfallen ignores difficult terrain caused by ice or snow.',
+  '',
+  'Multiattack The Frostfallen makes two Claw attacks and one Bite attack.',
+  '',
+  'Claw MWA: +10, 10 ft. Hit: 15 (2d8 + 6) slashing damage, plus 5 (1d10) cold damage.',
+  '',
+  'REACTIONS',
+  '',
+  'Desperate Clutch Trigger: A creature the Frostfallen can see moves away from it.',
+].join('\n')).block;
+is('the rating beside the title is not part of the name', card.name, 'Frostfallen');
+is('three defences on one line are all three read',
+  `${card.acValue}/${card.hpValue}/${card.speeds.walk}`, '18/225/40');
+is('- including the one behind the leading rule', card.acNote, 'frozen hide');
+is('- and a speed that wrapped onto the next word', card.speeds.climb, 20);
+is('a rating in the title bar still sets the proficiency bonus',
+  card.proficiencyBonus, 5);
+is('a name with no full stop after it still names its entry',
+  card.entries.trait.map((e) => e.name).join(', '),
+  'Aura of Bitter Cold, Frozen Flesh');
+is('attacks under a drawn rule are actions, not traits',
+  card.entries.action.map((e) => e.name).join(', '),
+  'Multiattack, Claw, Desperate Clutch');
+is('- and the attack keeps its damage', /2d8 \+ 6/.test(card.entries.action[1]?.text ?? ''), true);
+is('- and the reaction is filed as one',
+  card.entries.action.find((e) => e.name === 'Desperate Clutch')?.kind, 'reaction');
+
 console.log('\n--- a block this app printed itself, read back in ---');
 /* The strictest case there is: the Monster Maker's own two-column export,
    through the recogniser and back. Nothing here should be lost. */

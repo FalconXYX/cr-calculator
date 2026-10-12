@@ -22,5 +22,5 @@
     "composite": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "worker/src"]
 }

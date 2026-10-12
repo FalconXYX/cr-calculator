@@ -1,0 +1,68 @@
+-
+FROSTFALLEN CR 15
+Large Undead 13,000xp
+EE ——— |
+_ AC 18 (frozen hide), HP 225 (18d10+126), Spd 40ft. climb |
+
+20ft.
+STR DEX CON INT WIS CHA |
+22 (+6) 14(+2) 24 (+7) 5(3) 14(+2) 8 (1)
+
+Eee
+
+| Damage Vulnerabilities Fire, Radiant |
+Damage Immunities cold, poison
+Condition Immunities charmed, exhaustion, poisoned
+Senses darkvision 120ft., blindsight 10ft. passive Perception 12 |
+Languages That which it knew in life. |
+Aura of Bitter Cold The Frostfallen radiates a supernatural cold |
+
+emanation in a 30-foot radius. A creature of its choice |
+starting its turn within the aura takes 11 (2d10) cold
+damage. A creature grappled by the Devourer instead takes
+
+22 (4d10) cold damage. |
+
+Deathly Grip The Frostfallen can grapple and move up to two |
+creatures simultaneously. It needn't spend extra movement
+to move creatures it is grappling.
+
+Frozen Flesh The Frostfallen ignores difficult terrain caused by |
+ice or snow.
+
+Eee |
+
+|
+
+Multiattack The Frostfallen makes two Claw attacks and one
+Bite attack. It can replace its Bite attack with Freezing
+Embrace if available. |
+
+| Claw MWA: +10, 10 ft. Hit: 15 (2d8 + 6) slashing damage, plus |
+
+5 (1d10) cold damage, and on a successful hit can use both
+the Damage and the Grapple option (Escape 18).
+
+Bite MWA: +10, 5 ft. Hit: 17 (2d10 + 6) piercing damage, plus 9 |
+(2d8) cold damage. Additionally, if the target is grappled by |
+the Frostfallen, add an additional 11 (2d10) cold damage.
+
+Freezing Embrace (Recharge 5-6) The Frostfallen tightens its
+grip around one creature it is grappling and encases it in
+frost. That creature saves Constitution DC 18. Failure: it
+
+takes an initial 33 (6d10) cold damage and gets the
+
+restrained condition until the grapple ends. While restrained |
+in this manner, the creature cannot speak above a whisper or
+cast spells with a verbal component. Success: Takes half
+damage and is not restrained.
+
+REACTIONS
+
+Desperate Clutch Trigger: A creature the Frostfallen can see |
+within 10 ft. attempts to move away from it. Response: Make
+a grapple attack against that creature (Escape 18).
+
+—_
+

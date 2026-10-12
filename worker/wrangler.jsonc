@@ -1,0 +1,17 @@
+// The AI reader. Deploy from this folder with `npx wrangler deploy`.
+// Free plan only: Workers AI's daily allowance refuses past its limit rather
+// than billing, and the site falls back to its own reader when it does.
+{
+  "name": "cr-calc-reader",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "ai": { "binding": "AI" },
+  "vars": {
+    // The pages allowed to call this. Origins only: scheme and host, no path.
+    "ALLOWED_ORIGINS": "https://parthjain.ca,https://itmatteredagreatdeal-tech.github.io,https://falconxyx.github.io,http://localhost:5173",
+    // Roughly 50 reads a day on the free allowance. If deploying says this
+    // model needs a paid plan, use @cf/meta/llama-3.1-8b-instruct instead:
+    // about 90 a day, and less careful with messy blocks.
+    "MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  }
+}

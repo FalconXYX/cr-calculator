@@ -62,6 +62,23 @@ export function normalize(text: string): string {
     .replace(/^[ \t]*>[ \t]?/gm, '')
     .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
     .replace(/^[ \t]*[-*][ \t]+/gm, '')
+    /* A rule drawn in characters at the head of a line. Homebrew templates
+       open the defence line with a dash or an underscore, and recognition
+       returns the frame around a card as one too — "_ AC 18 (frozen hide)"
+       matched no pattern at all, because every one of them is anchored to
+       the start of a line and `\s` does not cover an underscore. A dash
+       sitting alone on its line is left alone: that is a field saying the
+       creature has none of whatever it is. */
+    .replace(/^[ \t]*[_\u2013\u2014\u2022\u00b7]+[ \t]+(?=\S)/gm, '')
+    /* Several defences on one line.
+
+       "AC 18 (frozen hide), HP 225 (18d10+126), Spd 40ft. climb 20ft." is one
+       line in a good many homebrew templates, and every reader below is
+       anchored to the start of a line — so the armour class was read and the
+       hit points and speed were simply reported missing. Split where the next
+       label begins. The label has to be followed by its number, which is what
+       keeps this off a comma in a trait's prose. */
+    .replace(/,[ \t]*(?=(?:Armor Class|AC|Hit Points|HP|Speed|Spd|Initiative)\b[ \t]*:?[ \t]*[+\d])/gi, '\n')
     /* Homebrewery v3's own dressing: column breaks, and the brace tokens that
        open and close a styled block. The TOKENS go, not the lines they sit
        on — wrapping one action in a note is ordinary practice, and dropping
@@ -103,7 +120,7 @@ export function looksLikeStatBlock(text: string): boolean {
     /\b(?:Hit Points|HP)\b\s*:?\s*\d/i,
     /\bSTR\b/i,
     /\b(?:Challenge|CR)\b\s*:?\s*[\d/]/i,
-    /\bSpeed\b\s*:?\s*\d/i,
+    /\b(?:Speed|Spd)\b\s*:?\s*\d/i,
   ];
   return signals.filter((re) => re.test(t)).length >= 2;
 }
@@ -152,7 +169,8 @@ function header(text: string, label: string): string | null {
         value = next.trim();
         continue;
       }
-      if (HEADER_LABEL.test(next) || headingFor(next) || ENTRY_START.test(next)) break;
+      if (HEADER_LABEL.test(next) || headingFor(next)
+        || ENTRY_START.test(next) || BARE_NAME.test(next)) break;
       value += ` ${next.trim()}`;
     }
     return value || null;
@@ -297,7 +315,7 @@ const LAST_HEADER = /^(?:Proficiency Bonus|Challenge|CR)(?![a-z])[^\n]*$/gim;
 
 /* Everything that announces itself at the start of a line in the top half of
    a block. Used to tell a header apart from the tail of the one above it. */
-const HEADER_LABEL = /^[ \t]*(?:Armor Class|AC|Initiative|Hit Points|HP|Speed|Saving Throws|Saves|Skills|Gear|Damage Vulnerabilities|Vulnerabilities|Damage Resistances|Resistances|Damage Immunities|Immunities|Condition Immunities|Senses|Languages|Challenge|CR|Proficiency Bonus|PB|STR|DEX|CON|INT|WIS|CHA)\b/i;
+const HEADER_LABEL = /^[ \t]*(?:Armor Class|AC|Initiative|Hit Points|HP|Speed|Spd|Saving Throws|Saves|Skills|Gear|Damage Vulnerabilities|Vulnerabilities|Damage Resistances|Resistances|Damage Immunities|Immunities|Condition Immunities|Senses|Languages|Challenge|CR|Proficiency Bonus|PB|STR|DEX|CON|INT|WIS|CHA)\b/i;
 
 /**
  * "Pack Tactics. The wolf has Advantage…" split into its name and its body.
@@ -319,6 +337,80 @@ const ENTRY = /^([A-Z][^.\n]{0,58}?)\s*[.:]\s+([\s\S]+)$/;
  */
 const ENTRY_START = /^([A-Z][^.\n]{0,58}?)\.\s+\S/;
 
+/**
+ * How short a line has to be, against the longest in its block, to have
+ * ended on purpose rather than because it ran out of column.
+ *
+ * Three quarters. A wrapped line gives up its last word when the next one
+ * will not fit, so the ragged edge of a justified-left column sits a word
+ * short of the longest line — call it a tenth, and more for a column of long
+ * words. A heading or a closing line is usually far shorter than that.
+ */
+const SHORT_LINE = 0.75;
+
+/**
+ * An entry whose name has no full stop after it.
+ *
+ * A great many homebrew templates set the name in bold and let the sentence
+ * run straight on from it — "Deathly Grip The Frostfallen can grapple…" —
+ * and bold is the first thing lost to a screenshot or a plain-text copy. With
+ * no stop to find, every entry in such a block went unread: not mangled,
+ * absent.
+ *
+ * What marks the join instead is the word after it. The body of an entry
+ * opens the way a sentence opens, and the openers are a short list. So the
+ * name is the longest run of name-shaped words that still leaves one of them
+ * standing next — longest, because the quantifier is greedy and gives ground
+ * only where the word after will not do, which is what stops "Aura of Bitter
+ * Cold" from swallowing the "The" that follows it.
+ *
+ * Deliberately case-sensitive. A body begins a sentence, so its first word is
+ * capitalised; matching lower case too would let a line wrapping mid-phrase
+ * — "…Frightened of the / Death Warden until the end of its next turn" —
+ * name an entry Death Warden.
+ */
+const SMALL_WORD = "of|the|and|or|a|an|in|on|to|from|with|for";
+const NAME_WORD = `(?:[A-Z][A-Za-z'’-]*|${SMALL_WORD})`;
+const OPENER = [
+  'The', 'A', 'An', 'It', 'Its', 'This', 'That', 'These', 'Those',
+  'Each', 'Every', 'Any', 'All', 'Both', 'One',
+  'When', 'Whenever', 'While', 'If', 'Once', 'As', 'At', 'On', 'After', 'Before', 'Until',
+  'Melee', 'Ranged', 'MWA', 'RWA', 'MSA', 'RSA',
+  'Trigger', 'Response', 'Hit', 'Miss', 'Failure', 'Success',
+  'Make', 'Roll', 'Attack', 'Creature', 'Creatures',
+  'Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma',
+].join('|');
+const BARE_NAME = new RegExp(
+  `^([A-Z][A-Za-z'’-]*(?:[ \\t]+${NAME_WORD}){0,4}(?:[ \\t]*\\([^)]{1,30}\\))?)`
+  + `[ \\t]+(?=(?:${OPENER})\\b)`,
+);
+
+/**
+ * A word that opens the body, picked up as the tail of the name in front.
+ *
+ * "Claw MWA: +10, 10 ft." is an attack called Claw, and "Desperate Clutch
+ * Trigger: A creature…" a reaction called Desperate Clutch — in both the
+ * colon belongs to the body's first word rather than to the name.
+ *
+ * Kept to this short list of words no entry is ever called. The general form
+ * of this rule — prefer whatever a bare reading made of the same line —
+ * renamed some two hundred entries across the catalogue that were already
+ * right, and "Response" alone costs two more, so it is not here either.
+ */
+const BODY_TAIL = /[ \t]+(?:MWA|RWA|MSA|RSA|Trigger)$/;
+
+/**
+ * An entry that is an action, in a block that never said so.
+ *
+ * Some templates separate the traits from the actions with a drawn rule and
+ * no heading at all, which leaves a creature's whole attack routine filed as
+ * traits — and a trait deals no damage, so the offensive half of the rating
+ * comes out at nothing. The giveaway is a Multiattack, or a body that opens
+ * the way an attack opens.
+ */
+const ACTIONISH = /^(?:Multiattack|Multi-attack)$/i;
+const ATTACK_BODY = /^(?:MWA|RWA|MSA|RSA)\b|^(?:Melee|Ranged)\s+(?:Weapon\s+|Spell\s+)?Attack\b|\bAttack Roll:/i;
+
 /** A line that finished what it was saying. */
 const SENTENCE_END = /[.!?:][)"'\u201d\u2019]?\s*$/;
 
@@ -332,25 +424,41 @@ const CLAUSE = /^(?:Hit|Miss|Failure|Success|Trigger|Response|Melee|Ranged|At Wi
  * puts a wrapped sentence back together.
  */
 function splitEntries(block: string): string[] {
-  const out: string[] = [];
-  /* Whether the line before this one finished a sentence.
-     A name only begins an entry where a sentence has just ended. Without
-     that, a sentence that wrapped mid-phrase started one of its own: "…within
-     10ft of the Death / Warden. Hit: 12 (2d8+3)…" put an action called Warden
-     into the list, and "…from the Material / Plane or vice versa. If doing so…"
-     added one called Plane or vice versa. Both read as a capitalised name
-     followed by a full stop, because that is exactly what they are — the
-     difference is entirely in what came before them. */
-  let closed = true;
+  const lines: string[] = [];
   for (const raw of block.split('\n')) {
     const line = raw.trim();
-    if (!line) continue;
-    const m = ENTRY_START.exec(line);
+    if (line) lines.push(line);
+  }
+
+  /* How wide this block runs.
+
+     A line that wrapped stops at the column edge, so it is about as long as
+     every other wrapped line around it. A line that stops well short of that
+     edge stopped because it was meant to: it is a heading, or the last line
+     of a paragraph. With no blank lines to go on — and optical recognition
+     never gives any — the width is the only thing left that still says where
+     one paragraph ended and the next began. */
+  let widest = 0;
+  for (const line of lines) widest = Math.max(widest, line.length);
+  const deliberate = (line: string): boolean => line.length < widest * SHORT_LINE;
+
+  const out: string[] = [];
+  /* Whether the line before this one finished what it was saying.
+     A name only begins an entry where the line above it came to a stop.
+     Without that, a sentence that wrapped mid-phrase started one of its own:
+     "…within 10ft of the Death / Warden. Hit: 12 (2d8+3)…" put an action
+     called Warden into the list, and "…from the Material / Plane or vice
+     versa. If doing so…" added one called Plane or vice versa. Both read as a
+     capitalised name followed by a full stop, because that is exactly what
+     they are — the difference is entirely in what came before them. */
+  let closed = true;
+  for (const line of lines) {
+    const m = ENTRY_START.exec(line) ?? BARE_NAME.exec(line);
     const name = m?.[1] ?? '';
     const starts = Boolean(m) && name.split(/\s+/).length <= 6 && !CLAUSE.test(name) && closed;
     if (starts || !out.length) out.push(line);
     else out[out.length - 1] += ` ${line}`;
-    closed = SENTENCE_END.test(line);
+    closed = SENTENCE_END.test(line) || deliberate(line);
   }
   return out;
 }
@@ -372,6 +480,9 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
   };
   let section: EntrySection = 'trait';
   let kind: ActionKind = 'action';
+  /* Whether a heading has said which section we are in. Until one has, an
+     attack is allowed to say so for itself. */
+  let told = false;
   let id = 0;
   let unnamed = 0;
 
@@ -383,6 +494,7 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
     if (heading) {
       section = heading.section;
       kind = heading.kind ?? 'action';
+      told = true;
       continue;
     }
     /* A heading can share a line with what follows it when the blank line
@@ -392,6 +504,7 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
     if (lead) {
       section = lead.section;
       kind = lead.kind ?? 'action';
+      told = true;
       const rest = block.slice(firstLine.length).trim();
       if (!rest) continue;
       for (const piece of splitEntries(rest)) pushEntry(piece);
@@ -411,7 +524,20 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
        announces one. */
     const colonNamed = Boolean(found) && /^[A-Z][^.\n]{0,58}?:/.test(flat);
     const m = colonNamed && entries[section].length ? null : found;
-    if (!m) {
+
+    let name = m?.[1];
+    let body = m?.[2];
+    /* Nothing with a stop or a colon in front of it — but the name may still
+       be there, with the sentence running straight on from it. */
+    if (name === undefined) {
+      const bare = BARE_NAME.exec(flat);
+      if (bare) {
+        name = bare[1];
+        body = flat.slice(bare[0].length);
+      }
+    }
+
+    if (name === undefined || body === undefined) {
       /* Prose with no name in front of it — a legendary action preamble, or a
          paragraph that belongs to whatever came before. */
       const list = entries[section];
@@ -425,10 +551,17 @@ function readEntries(body: string, report: ParseReport): Record<EntrySection, En
       else if (!(section === 'legendary' && /legendary action/i.test(block))) unnamed += 1;
       return;
     }
+    if (!told && section === 'trait' && (ACTIONISH.test(name.trim()) || ATTACK_BODY.test(body.trim()))) {
+      section = 'action';
+      kind = 'action';
+    }
+
     entries[section].push({
       id: `p${id++}`,
-      name: m[1]!.trim(),
-      text: m[2]!.trim(),
+      /* "Claw MWA: +10, 10 ft." names the attack Claw; the abbreviation is
+         the opening of its body, which happens to carry the colon. */
+      name: name.trim().replace(BODY_TAIL, ''),
+      text: body.trim(),
       ...(section === 'action' ? { kind } : {}),
     });
   }
@@ -453,7 +586,10 @@ export function parseStatBlock(input: string): ParseResult {
      The heading strip has to run before the capitals repair, because the
      welded heading is also where the lower case comes from that makes the
      name look like it was deliberately mixed. */
-  const HEADING_TAIL = /\s+(?:ACTIONS?|BONUS ACTIONS?|REACTIONS?|LEGENDARY ACTIONS?|TRAITS?|LAIR ACTIONS?)\s*$/i;
+  /* What may be welded onto the end of the name line and is not the name: a
+     heading from the next column over, and the challenge rating, which this
+     style of block prints in the top right corner beside the title. */
+  const HEADING_TAIL = /\s+(?:ACTIONS?|BONUS ACTIONS?|REACTIONS?|LEGENDARY ACTIONS?|TRAITS?|LAIR ACTIONS?|(?:CR|Challenge)[ \t]*[\d/]+(?:[ \t]*\([^)]*\))?)\s*$/i;
   const titleish = (line: string): boolean =>
     line.replace(HEADING_TAIL, '').trim().length >= 3
     && !HEADER_LABEL.test(line)
@@ -527,7 +663,10 @@ export function parseStatBlock(input: string): ParseResult {
      from being read as a creature with +20 to go first. */
   const initiative = firstNumber(text, /\bInitiative\b[ \t]*:?[ \t]*([+-]\d+)/i);
 
-  const speed = first(text, /^\s*Speed\b\s*:?\s*(.+)$/im);
+  /* Through `header`, not a single line: "Spd 40ft. climb" with "20ft."
+     underneath is one line in the picture and two on the page, and reading
+     only the first of them silently drops every speed but the walk. */
+  const speed = header(text, 'Speed|Spd');
   if (speed) {
     block.speeds.walk = firstNumber(speed, /^\s*(\d+)/) ?? 0;
     for (const kind of ['burrow', 'climb', 'fly', 'swim'] as const) {
@@ -566,7 +705,13 @@ export function parseStatBlock(input: string): ParseResult {
   /* "PB +3" is written on its own line in one house style and tucked inside
      the challenge line's brackets — "CR 5 (XP 1,800; PB +3)" — in another. */
   const statedPb = firstNumber(text, /(?:Proficiency Bonus|PB)\s*:?\s*\+?(\d+)/i);
-  const cr = first(text, /^\s*(?:Challenge|CR)\s*:?\s*([\d/]+)/im);
+  /* Anchored first, because that is where a challenge rating belongs. Where
+     there is none, the top of the block is searched again without the anchor:
+     a title bar prints it beside the name, so it is on a line that starts
+     with the creature. Only the first few lines, so that "CR" written in the
+     middle of a trait cannot be mistaken for the rating. */
+  const cr = first(text, /^\s*(?:Challenge|CR)\s*:?\s*([\d/]+)/im)
+    ?? first(lines.slice(0, 4).join('\n'), /\b(?:Challenge|CR)\b\s*:?\s*([\d/]+)/i);
   if (statedPb !== null) block.proficiencyBonus = statedPb;
   else if (cr) {
     const value = cr.includes('/') ? 0 : Number(cr);
@@ -691,7 +836,35 @@ export function parseStatBlock(input: string): ParseResult {
   LAST_HEADER.lastIndex = 0;
   let end: RegExpExecArray | null = null;
   for (let m = LAST_HEADER.exec(text); m; m = LAST_HEADER.exec(text)) end = m;
-  const body = end ? text.slice(end.index + end[0].length) : '';
+  let body = end ? text.slice(end.index + end[0].length) : '';
+
+  /* No challenge line at all.
+
+     Plenty of homebrew prints the rating in the title bar beside the name —
+     "FROSTFALLEN            CR 15" — and never writes it at the start of a
+     line. The rule above then finds nothing, the body is empty, and not one
+     trait or action is read: the block comes back with its defences filled
+     in and no prose whatsoever, which is a strange enough result to look
+     like the reader is broken rather than the cut.
+
+     So fall back to where the prose actually begins: the last header line of
+     any kind that still comes before the first line naming an entry. Going
+     by the first entry rather than by a count of lines is what keeps a trait
+     that happens to open with "Senses" from dragging the cut down past half
+     the block. */
+  if (!end) {
+    let offset = -1;
+    let at = 0;
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        if (HEADER_LABEL.test(trimmed)) offset = at + line.length;
+        else if (ENTRY_START.test(trimmed) || BARE_NAME.test(trimmed)) break;
+      }
+      at += line.length + 1;
+    }
+    if (offset >= 0) body = text.slice(offset);
+  }
   block.entries = readEntries(body, report);
   if (block.entries.legendary.length) {
     const uses = firstNumber(text, /can take (\d+) legendary action/i)
